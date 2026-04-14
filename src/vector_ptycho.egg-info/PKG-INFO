@@ -1,0 +1,16 @@
+Metadata-Version: 2.4
+Name: vector-ptycho
+Version: 0.1.0
+Summary: A Ptychographic reconstruction code for XMLD Neel vector mapping
+Author-email: Charlie Godfrey <charliegodfrey13@gmail.com>
+Requires-Python: >=3.9
+Description-Content-Type: text/markdown
+Requires-Dist: ipykernel>=6.31.0
+Requires-Dist: matplotlib>=3.9.4
+Requires-Dist: numpy>=2.0.2
+Requires-Dist: scipy>=1.13.1
+Requires-Dist: torch>=2.8.0
+Requires-Dist: torchvision>=0.23.0
+
+# vector-ptycho
+A python vector ptycho reconstructor using several linear polarised incident probes in the reconstruction. We don't have polarisation analysers in the x-ray path after the sample so we need to be creative.

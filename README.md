@@ -1,0 +1,2 @@
+# vector-ptycho
+A python vector ptycho reconstructor using several linear polarised incident probes in the reconstruction. We don't have polarisation analysers in the x-ray path after the sample so we need to be creative.
