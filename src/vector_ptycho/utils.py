@@ -74,7 +74,7 @@ class Probe:
         return JonesField(Ex, Ey)
 
     def shifted(self, dy, dx):
-        amp = torch.roll(self.amplitude, (dy, dx), dims=(0,1))
+        amp = torch.roll(self.amplitude, shifts=(dy, dx), dims=(0, 1))
         return Probe(amp, self.jones_vector)
 
 
@@ -129,7 +129,7 @@ class NeelObject:
         sin_p = torch.sin(phi)
 
         Jxx = self.C + self.A1 * (cos_p**2 * sin_t**2) + self.A2 * (cos_t**2)
-        Jxy = self.A2 * (sin_p * cos_p * sin_t**2)
+        Jxy = self.A1 * (sin_p * cos_p * sin_t**2)
         Jyx = Jxy
         Jyy = self.C + self.A1 * (sin_p**2 * sin_t**2) + self.A2 * (cos_t**2)
 
