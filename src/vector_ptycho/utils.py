@@ -31,6 +31,114 @@ def make_vector_color_map():
     plt.imshow(gradient, aspect='auto', cmap=RGB_scale)
     return RGB_scale
 
+def _to_numpy(x):
+    """Safely convert torch / array-like to numpy."""
+    if hasattr(x, "detach"):  # torch tensor
+        return x.detach().cpu().numpy()
+    return np.asarray(x)
+
+def plot_theta_phi_maps(theta, phi, Lx, Ly,
+                       positions=None,
+                       theta_cmap='magma',
+                       phi_cmap=RGB_scale,
+                       dx=0.0, dy=0.0,
+                       show_positions=True,
+                       label_positions=True,
+                       label_axes=True):
+    """
+    Plot theta and phi heatmaps, optionally overlaying scan positions.
+    """
+
+    # --- Convert inputs to numpy ---
+    theta_np = _to_numpy(theta)
+    phi_np   = _to_numpy(phi)
+
+    if positions is not None:
+        pos = _to_numpy(positions[:, :2])
+    else:
+        pos = None
+
+    # Default phi colormap fallback
+    if phi_cmap is None:
+        phi_cmap = 'hsv'
+
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+
+    # --- Theta heatmap ---
+    theta_plot = np.abs(np.cos(theta_np))
+
+    im1 = axes[0].imshow(
+        theta_plot,
+        extent=[-Lx, Lx, -Ly, Ly],
+        origin='lower',
+        cmap=theta_cmap,
+        vmin=0,
+        vmax=1
+    )
+    cbar1 = plt.colorbar(im1, ax=axes[0], fraction=0.046, pad=0.04)
+    cbar1.set_label(r'$|l_z|$')
+    axes[0].set_title(r'$l_z$ heatmap')
+
+    # --- Overlay positions (theta panel) ---
+    if show_positions and pos is not None:
+        axes[0].scatter(pos[:, 1], pos[:, 0],
+                        c='cyan', marker='x', s=12,
+                        label='Scan positions')
+
+        if label_positions:
+            for k, (dy_pos, dx_pos) in enumerate(pos):
+                axes[0].text(dx_pos - dx, dy_pos - dy, str(k),
+                             color='white', fontsize=8,
+                             ha='center', va='top')
+
+        axes[0].legend(loc='upper right')
+
+    # --- Phi heatmap ---
+    phi_deg = np.rad2deg(phi_np)
+    phi_plot = np.mod(phi_deg, 180)
+
+    im2 = axes[1].imshow(
+        phi_plot,
+        extent=[-Lx, Lx, -Ly, Ly],
+        origin='lower',
+        cmap=phi_cmap,
+        vmin=0,
+        vmax=180
+    )
+    cbar2 = plt.colorbar(im2, ax=axes[1], fraction=0.046, pad=0.04)
+    cbar2.set_label(r'$\phi$ [deg]')
+    cbar2.set_ticks([0, 30, 60, 90, 120, 150, 180])
+    axes[1].set_title(r'$\phi$ heatmap')
+
+    if label_axes:
+        for ax in axes:
+            ax.set_xticks(np.linspace(-Lx, Lx, 5))
+            ax.set_yticks(np.linspace(-Ly, Ly, 5))
+            ax.set_xlabel(r'$x$ [m]')
+            ax.set_ylabel(r'$y$ [m]')
+    else:
+        for ax in axes:
+            ax.set_xticks([])
+            ax.set_yticks([])
+
+    # --- Overlay positions (phi panel) ---
+    if show_positions and pos is not None:
+        axes[1].scatter(pos[:, 1], pos[:, 0],
+                        c='cyan', marker='x', s=12,
+                        label='Scan positions')
+
+        if label_positions:
+            for k, (dy_pos, dx_pos) in enumerate(pos):
+                axes[1].text(dx_pos - dx, dy_pos - dy, str(k),
+                             color='white', fontsize=8,
+                             ha='right', va='top')
+
+        axes[1].legend(loc='upper right')
+
+    plt.tight_layout()
+    plt.show()
+
+
 def im_display2(*images, titles=None, limits=None, save=False, name='name', c='viridis', bar=0):
     '''A new version of im_display which allows colour bars and changing the color map and saving'''
     fig, axes = plt.subplots(ncols=len(images))
