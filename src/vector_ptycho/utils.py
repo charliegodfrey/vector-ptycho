@@ -2,7 +2,34 @@ import torch
 import torch.nn as nn
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 
+def make_vector_color_map():
+    #wheel_colors = "#DA314E",'#2E2E2E',"#4EB955",'#2E2E2E',"#3354A4",'#2E2E2E',"#DA314E"
+    #https://meyerweb.com/eric/tools/color-blend/#3354A4:DA314E:1:hex
+    #wheel_colors = "#DA314E",'#947552',"#4EB955",'#41877D',"#3354A4",'#874379',"#DA314E"
+    #wheel_colors = "#DA314E",'#2E2E2E',"#4EB955",'#2E2E2E',"#3354A4",'#2E2E2E',"#DA314E"
+    #wheel_colors = '#2E2E2E',"#3354A4",'#2E2E2E',"#DA314E",'#2E2E2E',"#4EB955",'#2E2E2E' #Jack's strain paper
+    #                   A              B        C           D           E           F           G
+    wheel_colors = '#41877D',"#3354A4",'#874379',"#DA314E",'#947552',"#4EB955",'#41877D' #Jack's strain paper new colour scheme
+
+    wheel_colors = "#3354A4","#000000","#DA314E","#000000","#4EB955","#000000","#3354A4"
+
+    wheel_colors = "#3354A4",'#874379',"#DA314E",'#947552',"#4EB955",'#41877D',"#3354A4"
+    to_rgb = mcolors.ColorConverter().to_rgb
+    cdict = {'red': [], 'green': [], 'blue': []}
+    for i, color in enumerate(wheel_colors):
+        r, g, b = to_rgb(color)
+        position = ((i) / 6)
+        cdict['red'].append([position, r, r])
+        cdict['green'].append([position, g, g])
+        cdict['blue'].append([position, b, b])
+    RGB_scale = mcolors.LinearSegmentedColormap('CustomMap', cdict)
+    RGB_scale.set_bad(color='grey')
+    gradient = np.linspace(0, 180, 180)
+    gradient = np.vstack((gradient, gradient))
+    plt.imshow(gradient, aspect='auto', cmap=RGB_scale)
+    return RGB_scale
 
 def im_display2(*images, titles=None, limits=None, save=False, name='name', c='viridis', bar=0):
     '''A new version of im_display which allows colour bars and changing the color map and saving'''
@@ -230,6 +257,7 @@ def make_meron_antimeron_theta_phi(
     export_path=None,
     return_torch=True,
     out_device=None,
+    cm = 'twilight'
 ):
     """
     Build a meron-antimeron texture and return (theta, phi) suitable for NeelObject.build_jones().
@@ -314,17 +342,17 @@ def make_meron_antimeron_theta_phi(
         axes[0].set_yticks([])
 
         # Panel 2: theta heatmap
-        im1 = axes[1].imshow(theta_np, extent=[-Lx, Lx, -Ly, Ly], origin='lower', cmap='magma')
+        im1 = axes[1].imshow(np.rad2deg(theta_np), extent=[-Lx, Lx, -Ly, Ly], origin='lower', cmap='magma', vmin=0, vmax=180)
         cbar1 = plt.colorbar(im1, ax=axes[1], fraction=0.046, pad=0.04)
-        cbar1.set_label(r'$\theta$ [rad]')
+        cbar1.set_label(r'$\theta$ [deg]')
         axes[1].set_title('Theta heatmap')
         axes[1].set_xticks([])
         axes[1].set_yticks([])
 
         # Panel 3: phi heatmap
-        im2 = axes[2].imshow(phi_np, extent=[-Lx, Lx, -Ly, Ly], origin='lower', cmap='twilight')
+        im2 = axes[2].imshow(np.rad2deg(phi_np), extent=[-Lx, Lx, -Ly, Ly], origin='lower', cmap=cm, vmin=0, vmax=360)
         cbar2 = plt.colorbar(im2, ax=axes[2], fraction=0.046, pad=0.04)
-        cbar2.set_label(r'$\phi$ [rad]')
+        cbar2.set_label(r'$\phi$ [deg]')
         axes[2].set_title('Phi heatmap')
         axes[2].set_xticks([])
         axes[2].set_yticks([])
