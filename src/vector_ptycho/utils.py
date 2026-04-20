@@ -40,7 +40,7 @@ def _to_numpy(x):
 def plot_theta_phi_maps(theta, phi, Lx, Ly,
                        positions=None,
                        theta_cmap='magma',
-                       phi_cmap=RGB_scale,
+                       phi_cmap='twilight',
                        dx=0.0, dy=0.0,
                        show_positions=True,
                        label_positions=True,
@@ -137,6 +137,7 @@ def plot_theta_phi_maps(theta, phi, Lx, Ly,
 
     plt.tight_layout()
     plt.show()
+    return fig, axes
 
 
 def im_display2(*images, titles=None, limits=None, save=False, name='name', c='viridis', bar=0):
@@ -308,8 +309,16 @@ class Propagator:
 
 
 class Detector:
+    def __init__(self, add_poisson_noise=False):
+        self.add_poisson_noise = add_poisson_noise
+
     def intensity(self, field: JonesField):
-        return torch.abs(field.Ex)**2 + torch.abs(field.Ey)**2
+        intensity = torch.abs(field.Ex)**2 + torch.abs(field.Ey)**2
+
+        if self.add_poisson_noise:
+            intensity = torch.poisson(torch.clamp(intensity, min=0))
+
+        return intensity
 
 
 # =========================
@@ -422,6 +431,15 @@ def make_meron_antimeron_theta_phi(
         np.savez(export_path, theta=theta_np, phi=phi_np)
 
     if plot:
+        fig, axes = plot_theta_phi_maps(theta_np, phi_np, Lx, Ly,
+                           positions=None,
+                           theta_cmap='magma',
+                           phi_cmap=cm,
+                           dx=0.0, dy=0.0,
+                           show_positions=False,
+                           label_positions=False,
+                           label_axes=False)
+        '''
         fig, axes = plt.subplots(1, 3, figsize=(18, 5))
 
         # Panel 1: original style plot (Mz + in-plane quiver)
@@ -464,7 +482,7 @@ def make_meron_antimeron_theta_phi(
         axes[2].set_title('Phi heatmap')
         axes[2].set_xticks([])
         axes[2].set_yticks([])
-
+        '''
         plt.tight_layout()
         if save_path is not None:
             plt.savefig(save_path, dpi=500, bbox_inches='tight')
