@@ -37,6 +37,24 @@ def _to_numpy(x):
         return x.detach().cpu().numpy()
     return np.asarray(x)
 
+def plot_probe_maps(probe_amplitude, Lx, Ly):
+    """
+    Plot probe abs and phase.
+    """
+    fig, axes = plt.subplots(1, 2, figsize=(16, 5))
+    im1 = axes[0].imshow(np.abs(probe_amplitude), extent=[-Lx, Lx, -Ly, Ly], origin='lower', cmap='magma')
+    cbar1 = plt.colorbar(im1, ax=axes[0], fraction=0.046, pad=0.04)
+    cbar1.set_label(r'$A$')
+    axes[0].set_title('Probe Amplitude')
+
+    im2 = axes[1].imshow(np.angle(probe_amplitude), extent=[-Lx, Lx, -Ly, Ly], origin='lower', cmap='twilight')
+    cbar2 = plt.colorbar(im2, ax=axes[1], fraction=0.046, pad=0.04)
+    cbar2.set_label(r'$\psi$ [rad]')
+    axes[1].set_title('Probe Phase')
+    plt.show()
+
+
+
 def plot_theta_phi_maps(theta, phi, Lx, Ly,
                        positions=None,
                        theta_cmap='magma',
@@ -61,7 +79,7 @@ def plot_theta_phi_maps(theta, phi, Lx, Ly,
     # Default phi colormap fallback
     if phi_cmap is None:
         phi_cmap = 'hsv'
-
+ 
     fig, axes = plt.subplots(1, 2, figsize=(12, 5))
 
     # --- Theta heatmap ---
@@ -200,18 +218,24 @@ class JonesField:
 
 
 class Probe:
-    def __init__(self, amplitude, jones_vector):
+    def __init__(self, amplitude, jones_vector, fluence=None):
         self.amplitude = amplitude
         self.jones_vector = jones_vector
+        self.fluence = fluence # Optional scalar for total probe photons per exposure, used for Poisson noise simulation.
+        self.amplitude = self.amplitude / torch.linalg.norm(self.amplitude)  # Normalise probe amplitude  
+        if self.fluence is not None:
+            self.amplitude_scaled = amplitude * fluence
+        else:
+            self.amplitude_scaled = amplitude
 
     def field(self):
-        Ex = self.amplitude * self.jones_vector[0]
-        Ey = self.amplitude * self.jones_vector[1]
+        Ex = self.amplitude_scaled * self.jones_vector[0]
+        Ey = self.amplitude_scaled * self.jones_vector[1]
         return JonesField(Ex, Ey)
 
     def shifted(self, dy, dx):
-        amp = torch.roll(self.amplitude, shifts=(dy, dx), dims=(0, 1))
-        return Probe(amp, self.jones_vector)
+        amp = torch.roll(self.amplitude_scaled, shifts=(dy, dx), dims=(0, 1))
+        return Probe(amp, self.jones_vector, self.fluence)
 
 
 class JonesObject:
