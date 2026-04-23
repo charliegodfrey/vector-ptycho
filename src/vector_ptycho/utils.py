@@ -218,24 +218,24 @@ class JonesField:
 
 
 class Probe:
-    def __init__(self, amplitude, jones_vector, fluence=None):
+    def __init__(self, amplitude, jones_vector, fluence=None, normalized=False):
         self.amplitude = amplitude
         self.jones_vector = jones_vector
-        self.fluence = fluence # Optional scalar for total probe photons per exposure, used for Poisson noise simulation.
-        self.amplitude = self.amplitude / torch.linalg.norm(self.amplitude)  # Normalise probe amplitude  
-        if self.fluence is not None:
-            self.amplitude_scaled = amplitude * fluence
+        self.fluence = fluence if fluence is not None else 1.0  # Optional scalar for total probe photons per exposure, used for Poisson noise simulation.
+        if normalized:
+            self.amplitude_scaled = self.amplitude
         else:
-            self.amplitude_scaled = amplitude
+            self.amplitude_scaled = self.amplitude * torch.sqrt(self.fluence / torch.sum(torch.abs(self.amplitude)**2))  # Normalise probe amplitude  
+            self.amplitude = self.amplitude_scaled
 
     def field(self):
-        Ex = self.amplitude_scaled * self.jones_vector[0]
-        Ey = self.amplitude_scaled * self.jones_vector[1]
+        Ex = self.amplitude * self.jones_vector[0]
+        Ey = self.amplitude * self.jones_vector[1]
         return JonesField(Ex, Ey)
 
     def shifted(self, dy, dx):
-        amp = torch.roll(self.amplitude_scaled, shifts=(dy, dx), dims=(0, 1))
-        return Probe(amp, self.jones_vector, self.fluence)
+        amp = torch.roll(self.amplitude, shifts=(dy, dx), dims=(0, 1))
+        return Probe(amp, self.jones_vector, fluence=self.fluence, normalized=True)
 
 
 class JonesObject:
@@ -362,13 +362,19 @@ class ForwardModel:
         self.propagator = propagator
         self.detector = detector
 
-    def simulate_all(self, probes, scan):
+    def simulate_all(self, probes, scan, position_indices=None):
         data = []
+
+        if position_indices is None:
+            positions = scan.positions
+        else:
+            idx = torch.as_tensor(position_indices, dtype=torch.long, device=scan.positions.device)
+            positions = scan.positions.index_select(0, idx)
 
         for probe in probes:
             probe_data = []
 
-            for dy, dx in scan.positions.tolist():
+            for dy, dx in positions.tolist():
                 field = probe.shifted(int(dy), int(dx)).field()
                 field = self.obj.apply(field)
                 field = self.propagator.propagate(field)
