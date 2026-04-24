@@ -5,6 +5,7 @@ Summary: A Ptychographic reconstruction code for XMLD Neel vector mapping
 Author-email: Charlie Godfrey <charliegodfrey13@gmail.com>
 Requires-Python: >=3.9
 Description-Content-Type: text/markdown
+Requires-Dist: datetime>=5.5
 Requires-Dist: ipykernel>=6.31.0
 Requires-Dist: matplotlib>=3.9.4
 Requires-Dist: numpy>=2.0.2

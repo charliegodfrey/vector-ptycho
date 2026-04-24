@@ -3,6 +3,8 @@ import torch.nn as nn
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
+from datetime import datetime
+import os
 
 def make_vector_color_map():
     #wheel_colors = "#DA314E",'#2E2E2E',"#4EB955",'#2E2E2E',"#3354A4",'#2E2E2E',"#DA314E"
@@ -524,3 +526,482 @@ def make_meron_antimeron_theta_phi(
         return theta, phi, Mx, My, Mz
 
     return theta_np, phi_np, Mx, My, Mz
+
+def initialize_probe_amplitude(H, W, Lx, Ly, device):
+    '''
+
+    Initialise the probe amplitude with a guess that has a similar shape to the true probe, but is not exactly the same. This is to help convergence of the joint object-probe optimization.
+    '''
+    x = torch.linspace(-Lx, Lx, H, device=device)
+    y = torch.linspace(-Ly, Ly, W, device=device)
+    X, Y = torch.meshgrid(x, y, indexing='ij')
+    R = torch.sqrt(X**2 + Y**2)
+    diffuser = 0.7 * (torch.sin(1 * R) + torch.cos((Y * 1 + X * 1) - 0.8 * (X - 0.2)) + torch.cos((Y - X) - 0.5 * (X)))
+    P = torch.exp(2j * np.pi * diffuser) * (torch.exp(-0.5 * R))
+    return P
+
+
+class Reconstruction:
+    """Joint object-probe reconstruction with checkpoint save/load + resumable run()."""
+
+    def __init__(
+        self,
+        scan,
+        pol_angles,
+        I_meas,
+        H,
+        W,
+        Lx,
+        Ly,
+        fluence,
+        RGB_scale,
+        device=None,
+        initial_theta=None,
+        initial_phi=None,
+        initial_probe_amplitude=None,
+        initial_C=None,
+        initial_A1=None,
+        initial_A2=None,
+        start_iteration=0,
+        loss_history=None,
+    ):
+        if device is None:
+            device = I_meas.device
+
+        self.scan = scan
+        self.pol_angles = pol_angles
+        self.I_meas = I_meas
+        self.H = H
+        self.W = W
+        self.Lx = Lx
+        self.Ly = Ly
+        self.fluence = fluence
+        self.RGB_scale = RGB_scale
+        self.device = device
+
+        self.theta = torch.nn.Parameter(initial_theta.clone().to(device))
+        self.phi = torch.nn.Parameter(initial_phi.clone().to(device))
+        self.probe_amplitude = torch.nn.Parameter(initial_probe_amplitude.clone().to(device))
+
+        self.C = torch.nn.Parameter(initial_C.clone().to(device))
+        self.A1 = torch.nn.Parameter(initial_A1.clone().to(device))
+        self.A2 = torch.nn.Parameter(initial_A2.clone().to(device))
+
+        self.start_iteration = int(start_iteration)
+        self.loss_history = list(loss_history) if loss_history is not None else []
+
+    @classmethod
+    def from_initial_guess(
+        cls,
+        scan,
+        pol_angles,
+        I_meas,
+        H,
+        W,
+        Lx,
+        Ly,
+        fluence,
+        RGB_scale,
+        C,
+        A1,
+        A2,
+        device=None,
+        random_object=False,
+    ):
+        if device is None:
+            device = I_meas.device
+
+        initial_probe_amplitude = initialize_probe_amplitude(H, W, Lx, Ly, device)
+
+        if random_object:
+            initial_theta = torch.rand((H, W), device=device) * 0.01 + torch.pi / 2
+            initial_phi = torch.rand((H, W), device=device) * 0.1 + torch.pi / 2
+        else:
+            initial_theta, initial_phi, _, _, _ = make_meron_antimeron_theta_phi(
+                Nx=W,
+                Ny=H,
+                Lx=Lx,
+                Ly=Ly,
+                plot=False,
+                save_path=None,
+                export_path=None,
+                return_torch=True,
+                out_device=device,
+                cm=RGB_scale,
+            )
+
+        return cls(
+            scan=scan,
+            pol_angles=pol_angles,
+            I_meas=I_meas,
+            H=H,
+            W=W,
+            Lx=Lx,
+            Ly=Ly,
+            fluence=fluence,
+            RGB_scale=RGB_scale,
+            device=device,
+            initial_theta=initial_theta,
+            initial_phi=initial_phi,
+            initial_probe_amplitude=initial_probe_amplitude,
+            initial_C=C.detach().clone(),
+            initial_A1=A1.detach().clone(),
+            initial_A2=A2.detach().clone(),
+            start_iteration=0,
+            loss_history=[],
+        )
+
+    def to_checkpoint_dict(self):
+        if torch.is_tensor(self.fluence):
+            fluence_to_save = self.fluence.detach().cpu()
+        else:
+            fluence_to_save = torch.as_tensor(self.fluence)
+
+        return {
+            "iteration": int(self.start_iteration),
+            "theta": self.theta.detach().cpu(),
+            "phi": self.phi.detach().cpu(),
+            "probe_amplitude": self.probe_amplitude.detach().cpu(),
+            "C": self.C.detach().cpu(),
+            "A1": self.A1.detach().cpu(),
+            "A2": self.A2.detach().cpu(),
+            "scan_positions": self.scan.positions.detach().cpu(),
+            "I_meas": self.I_meas.detach().cpu(),
+            "fluence": fluence_to_save,
+            "loss_history": list(self.loss_history),
+            "config": {
+                "H": int(self.H),
+                "W": int(self.W),
+                "Lx": float(self.Lx),
+                "Ly": float(self.Ly),
+                "pol_angles": list(self.pol_angles),
+            },
+        }
+
+    def save(self, checkpoint_path):
+        torch.save(self.to_checkpoint_dict(), checkpoint_path)
+
+    @classmethod
+    def load(
+        cls,
+        checkpoint_path,
+        scan=None,
+        pol_angles=None,
+        I_meas=None,
+        fluence=None,
+        RGB_scale=None,
+        Lx=None,
+        Ly=None,
+        device=None,
+    ):
+        """
+        Load a reconstruction checkpoint using only explicit inputs and checkpoint data.
+        """
+        checkpoint = torch.load(checkpoint_path, map_location=device if device is not None else "cpu")
+        config = checkpoint.get("config", {})
+
+        scan_positions_ckpt = checkpoint.get("scan_positions", None)
+        I_meas_ckpt = checkpoint.get("I_meas", None)
+        fluence_ckpt = checkpoint.get("fluence", None)
+
+        # Resolve optional runtime data from checkpoint first.
+        if scan is None:
+            if scan_positions_ckpt is not None:
+                scan = ScanTrajectory(scan_positions_ckpt.to(torch.int64))
+        if pol_angles is None:
+            pol_angles = config.get("pol_angles", None)
+        if I_meas is None:
+            if I_meas_ckpt is not None:
+                I_meas = I_meas_ckpt
+        if fluence is None:
+            if fluence_ckpt is not None:
+                fluence = fluence_ckpt
+        if RGB_scale is None:
+            raise ValueError("RGB_scale must be provided explicitly to Reconstruction.load().")
+        if Lx is None:
+            Lx = config.get("Lx", None)
+        if Ly is None:
+            Ly = config.get("Ly", None)
+
+        missing = []
+        if scan is None:
+            missing.append("scan")
+        if pol_angles is None:
+            missing.append("pol_angles")
+        if I_meas is None:
+            missing.append("I_meas")
+        if fluence is None:
+            missing.append("fluence")
+        if RGB_scale is None:
+            missing.append("RGB_scale")
+        if Lx is None:
+            missing.append("Lx")
+        if Ly is None:
+            missing.append("Ly")
+
+        if missing:
+            raise ValueError(f"Missing required arguments/checkpoint fields for load(): {missing}")
+
+        if device is None:
+            device = I_meas.device
+
+        I_meas = I_meas.to(device)
+        if torch.is_tensor(fluence):
+            fluence = fluence.to(device)
+        else:
+            fluence = torch.as_tensor(fluence, device=device)
+
+        theta = checkpoint["theta"].to(device)
+        phi = checkpoint["phi"].to(device)
+        probe_amplitude = checkpoint["probe_amplitude"].to(device)
+        C = checkpoint["C"].to(device)
+        A1 = checkpoint["A1"].to(device)
+        A2 = checkpoint["A2"].to(device)
+
+        H, W = int(theta.shape[0]), int(theta.shape[1])
+
+        recon = cls(
+            scan=scan,
+            pol_angles=pol_angles,
+            I_meas=I_meas,
+            H=H,
+            W=W,
+            Lx=Lx,
+            Ly=Ly,
+            fluence=fluence,
+            RGB_scale=RGB_scale,
+            device=device,
+            initial_theta=theta,
+            initial_phi=phi,
+            initial_probe_amplitude=probe_amplitude,
+            initial_C=C,
+            initial_A1=A1,
+            initial_A2=A2,
+            start_iteration=int(checkpoint.get("iteration", 0)),
+            loss_history=list(checkpoint.get("loss_history", [])),
+        )
+        return recon
+
+    def run(self, num_iterations=100, batch_size=10, checkpoint_path=None, checkpoint_every=100):
+        eps = 1e-12
+        cdtype = torch.complex64
+
+        probe_amplitude_start = self.probe_amplitude.detach()
+        fluence_calc = torch.sum(torch.abs(probe_amplitude_start) ** 2)
+        print(
+            f"Calculated initial fluence from probe amplitude: {fluence_calc.item():.6e}, "
+            f"target fluence: {self.fluence.item():.6e}"
+        )
+
+        optimizer = torch.optim.Adam([
+            {"params": [self.theta], "lr": 1e-2},
+            {"params": [self.phi], "lr": 1e-2},
+            {"params": [self.C, self.A1, self.A2], "lr": 1e-5},
+            {"params": [self.probe_amplitude], "lr": 1e-2},
+        ])
+
+        n_scan = int(self.scan.positions.shape[0])
+        if n_scan < 1:
+            raise ValueError("scan.positions must contain at least one position")
+
+        batch_size = int(max(1, min(batch_size, n_scan)))
+        steps_per_epoch = (n_scan + batch_size - 1) // batch_size
+        scan_device = self.scan.positions.device
+
+        for local_iteration in range(num_iterations):
+            iteration = self.start_iteration + local_iteration
+            optimizer.zero_grad(set_to_none=True)
+
+            if local_iteration % steps_per_epoch == 0:
+                perm = torch.randperm(n_scan, device=scan_device)
+
+            batch_slot = local_iteration % steps_per_epoch
+            start = batch_slot * batch_size
+            end = min(start + batch_size, n_scan)
+            batch_idx = perm[start:end]
+
+            neel = NeelObject(self.C, self.A1, self.A2)
+            J = neel.build_jones(self.theta, self.phi)
+            obj = JonesObject(J)
+
+            probes = []
+            for angle in self.pol_angles:
+                rad = np.deg2rad(angle)
+                jones_vec = torch.tensor([np.cos(rad) + 0j, np.sin(rad) + 0j], dtype=cdtype, device=self.device)
+                probes.append(Probe(self.probe_amplitude, jones_vec, fluence=self.fluence, normalized=True))
+
+            model = ForwardModel(obj, Propagator(), Detector())
+            I_pred = model.simulate_all(probes, self.scan, position_indices=batch_idx)
+            I_meas_batch = self.I_meas.index_select(1, batch_idx.to(self.I_meas.device))
+
+            loss = torch.mean((torch.sqrt(I_pred + eps) - torch.sqrt(I_meas_batch + eps)) ** 2)
+            loss.backward()
+            optimizer.step()
+
+            self.loss_history.append(loss.item())
+            print(
+                f"Iter {iteration:4d} | Loss = {loss.item():.6e} | "
+                f"Batch positions: {int(batch_idx[0])}-{int(batch_idx[-1])} (size={batch_idx.numel()})"
+            )
+
+            if iteration % 100 == 0:
+                plot_probe_maps(self.probe_amplitude.detach().cpu().numpy(), self.Lx, self.Ly)
+                plot_theta_phi_maps(
+                    self.theta.detach().cpu().numpy(),
+                    self.phi.detach().cpu().numpy(),
+                    self.Lx,
+                    self.Ly,
+                    theta_cmap='magma',
+                    phi_cmap=self.RGB_scale,
+                    label_axes=True,
+                )
+
+            if checkpoint_path is not None and checkpoint_every > 0 and ((iteration + 1) % checkpoint_every == 0):
+                self.start_iteration = iteration + 1
+                self.save(checkpoint_path)
+                print(f"Checkpoint saved to {checkpoint_path} at iteration {iteration + 1}")
+
+        self.start_iteration = self.start_iteration + num_iterations
+
+        if checkpoint_path is not None:
+            self.save(checkpoint_path)
+            print(f"Final checkpoint saved to {checkpoint_path}")
+
+        return {
+            "theta": self.theta.detach(),
+            "phi": self.phi.detach(),
+            "probe_amplitude": self.probe_amplitude.detach(),
+            "C": self.C.detach(),
+            "A1": self.A1.detach(),
+            "A2": self.A2.detach(),
+            "loss_history": list(self.loss_history),
+        }
+
+
+
+def optimize_object_and_probe(scan, pol_angles, I_meas, H, W, num_iterations=100, device=None):
+    """
+    Reconstruct probes (different for each polarisation) theta, phi, C, A1, A2 from measured diffraction patterns.
+    This is an old function, a better batch-based approach is now being used and is absorbed into the Reconstruction Class.
+    Parameters
+    ----------
+    scan : ScanTrajectory
+        Scan positions.
+    I_meas : torch.Tensor
+        Measured intensities, shape (N_probes, N_scan, Hdet, Wdet)
+    H, W : int
+        Object map size.
+    num_iterations : int
+        Number of optimization steps.
+    device : torch.device or str
+        Device to use.
+    """
+    if device is None:
+        device = I_meas.device
+
+    eps = 1e-12
+    cdtype = torch.complex64
+
+    theta, phi, Mx, My, Mz = make_meron_antimeron_theta_phi(
+        Nx=W,
+        Ny=H,
+        Lx=Lx,
+        Ly=Ly,
+        plot=False,
+        save_path=None,
+        export_path=None,
+        return_torch=True,
+        out_device=device,
+        cm = RGB_scale
+    )
+
+    # Learnable parameters
+    theta = torch.nn.Parameter(torch.rand((H, W), device=device) * 0.01 + torch.pi/2)
+    phi   = torch.nn.Parameter(torch.rand((H, W), device=device) * 0.1 + torch.pi/2)
+
+    # Learnable parameters
+    theta = torch.nn.Parameter(theta+torch.rand((H, W), device=device) * 0.01)#torch.nn.Parameter(torch.rand((H, W), device=device) * 0.01 + torch.pi/2)
+    phi   = torch.nn.Parameter(phi+torch.rand((H, W), device=device) * 0.01)#torch.nn.Parameter(torch.rand((H, W), device=device) * 0.1 + torch.pi/2)
+
+
+    R=torch.sqrt(X**2+Y**2) #This helps with defining the probe
+    probe_radius_guess = 1.5
+    # Initialise a slightly different probe amplitude to that I actually made the simulation data with.
+    Diffuser = (torch.sqrt(1.5*X**2+3.0*Y**2)+torch.pi/3) #np.mod(0.1*(torch.sin(150*R)+torch.cos((Y*10+X*30)**2-0.8*(X*75-0.2))+torch.cos((Y*10-X*33)**2-0.4*(X*50-0.2))),1)
+    probe_amplitude = torch.nn.Parameter(torch.exp(2j*np.pi*Diffuser)*torch.exp(-1.5*R))
+    probes = []
+    for angle in pol_angles:
+        rad = np.deg2rad(angle)
+        jones_vec = torch.tensor([np.cos(rad) + 0j, np.sin(rad) + 0j], dtype=cdtype, device=device)
+        probes.append(Probe(probe_amplitude, jones_vec, fluence=fluence, normalized=False))
+    probe_amplitude = torch.nn.Parameter(probes[0].amplitude)
+    probe_amplitude_start = probes[0].amplitude
+    fluence_calc = torch.sum(torch.abs(probe_amplitude_start)**2)
+    print(f"Calculated initial fluence from probe amplitude: {fluence_calc.item():.6e}, target fluence: {fluence.item():.6e}")
+
+    optimizer = torch.optim.Adam([
+        {"params": [theta], "lr": 1e-1},
+        {"params": [phi], "lr": 1e-1},
+        {"params": [C, A1, A2], "lr": 1e-5},
+        {"params": [probe_amplitude], "lr": 0.8}
+        ])
+
+    loss_history = []
+
+    for iteration in range(num_iterations):
+        optimizer.zero_grad(set_to_none=True)
+
+        # Build Jones object from current parameters
+        neel = NeelObject(C, A1, A2)
+        J = neel.build_jones(theta, phi)
+        obj = JonesObject(J)
+
+        # Remake the probe array
+        probes = []
+        for angle in pol_angles:
+            rad = np.deg2rad(angle)
+            jones_vec = torch.tensor([np.cos(rad) + 0j, np.sin(rad) + 0j], dtype=cdtype, device=device)
+            probes.append(Probe(probe_amplitude, jones_vec, fluence=fluence, normalized=True))
+
+        # Forward model
+        model = ForwardModel(obj, Propagator(), Detector())
+        I_pred = model.simulate_all(probes, scan)
+        eps = 1e-8
+
+        fluence_calc = torch.sum(torch.abs(probe_amplitude)**2)
+        print(f"Calculated fluence from probe amplitude: {fluence_calc.item():.6e}, target fluence: {fluence.item():.6e}")
+        # Amplitude-based ptychographic loss
+        non_central_probe_cost = 0.0 #1e-3*torch.mean(torch.abs(probe_amplitude)**2*R**2) #This stops the probe from drifting by penalising amplitude at large R
+        loss = torch.mean((torch.sqrt(I_pred + eps) - torch.sqrt(I_meas + eps))**2) #+ 1e-1*((torch.sqrt(fluence + eps) - torch.sqrt(fluence_calc + eps))**2)
+        #loss = torch.mean((I_pred - I_meas) ** 2) #This MSE loss is not as good as the one above.
+        
+        #eps = 1e-8
+        #loss = torch.mean(I_pred - I_meas * torch.log(I_pred + eps)) #+ 1e-5 * (torch.var(theta) + torch.var(phi)) + 1e-5 * (torch.var(probe_amplitude)) # Add small regularization to prevent collapse
+        loss.backward()
+        optimizer.step()
+
+        #with torch.no_grad():
+        #    probe_amplitude *= torch.sqrt(fluence / torch.sum(torch.abs(probe_amplitude)**2))
+
+        loss_history.append(loss.item())
+
+        if iteration % 1 == 0:
+            print(f"Iter {iteration:4d} | Loss = {loss.item():.6e}")
+        
+        if iteration % 5 == 0:
+            plot_probe_maps(probe_amplitude.detach().numpy(), Lx, Ly)
+            plot_theta_phi_maps(theta.detach().numpy(), phi.detach().numpy(), Lx, Ly,theta_cmap='magma', phi_cmap=RGB_scale, label_axes=True)
+
+        if iteration % 5 == 0:
+            plt.plot(loss_history)
+            plt.show()
+
+    return {
+        "theta": theta.detach(),
+        "phi": phi.detach(),
+        "probe_amplitude": probe_amplitude.detach(),
+        "C": C.detach(),
+        "A1": A1.detach(),
+        "A2": A2.detach(),
+        "loss_history": loss_history,
+    }
