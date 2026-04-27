@@ -6,7 +6,7 @@ import matplotlib.colors as mcolors
 from datetime import datetime
 import os
 
-def make_vector_color_map():
+def make_vector_color_map(plot=False):
     #wheel_colors = "#DA314E",'#2E2E2E',"#4EB955",'#2E2E2E',"#3354A4",'#2E2E2E',"#DA314E"
     #https://meyerweb.com/eric/tools/color-blend/#3354A4:DA314E:1:hex
     #wheel_colors = "#DA314E",'#947552',"#4EB955",'#41877D',"#3354A4",'#874379',"#DA314E"
@@ -30,7 +30,8 @@ def make_vector_color_map():
     RGB_scale.set_bad(color='grey')
     gradient = np.linspace(0, 180, 180)
     gradient = np.vstack((gradient, gradient))
-    plt.imshow(gradient, aspect='auto', cmap=RGB_scale)
+    if plot:
+        plt.imshow(gradient, aspect='auto', cmap=RGB_scale)
     return RGB_scale
 
 def _to_numpy(x):
@@ -536,8 +537,20 @@ def initialize_probe_amplitude(H, W, Lx, Ly, device):
     y = torch.linspace(-Ly, Ly, W, device=device)
     X, Y = torch.meshgrid(x, y, indexing='ij')
     R = torch.sqrt(X**2 + Y**2)
-    diffuser = 0.7 * (torch.sin(1 * R) + torch.cos((Y * 1 + X * 1) - 0.8 * (X - 0.2)) + torch.cos((Y - X) - 0.5 * (X)))
+    diffuser = torch.rand((H, W), device=device) #0.7 * (torch.sin(1 * R) + torch.cos((Y * 1 + X * 1) - 0.8 * (X - 0.2)) + torch.cos((Y - X) - 0.5 * (X)))
     P = torch.exp(2j * np.pi * diffuser) * (torch.exp(-0.5 * R))
+    return P
+
+def estimate_probe(H, W, Lx, Ly, I_meas, device):
+    '''
+    Estimate the probe intensity by square root of the diffraction pattern averaged over all scan positions. 
+    This is a common heuristic for probe initialization in ptychography.
+    Then inverse Fourier Transform to get an initial guess for the probe amplitude in real space.
+    '''
+    I_avg = I_meas.mean(dim=(0, 1))  # Average over scan positions
+    print('The shape of the diffraction pattern is: ', I_avg.shape)
+    P = torch.sqrt(I_avg)
+    P = iF(P)  # Inverse Fourier Transform to get initial probe guess in real space
     return P
 
 
@@ -589,6 +602,8 @@ class Reconstruction:
 
         self.start_iteration = int(start_iteration)
         self.loss_history = list(loss_history) if loss_history is not None else []
+        self.optimizer = None
+        self.optimizer_config = None
 
     @classmethod
     def from_initial_guess(
@@ -606,29 +621,20 @@ class Reconstruction:
         A1,
         A2,
         device=None,
-        random_object=False,
+        initial_object='random',
+        initial_probe='gaussian',
     ):
         if device is None:
             device = I_meas.device
 
-        initial_probe_amplitude = initialize_probe_amplitude(H, W, Lx, Ly, device)
-
-        if random_object:
+        if initial_object == 'random_IP_90deg':
             initial_theta = torch.rand((H, W), device=device) * 0.01 + torch.pi / 2
             initial_phi = torch.rand((H, W), device=device) * 0.1 + torch.pi / 2
-        else:
-            initial_theta, initial_phi, _, _, _ = make_meron_antimeron_theta_phi(
-                Nx=W,
-                Ny=H,
-                Lx=Lx,
-                Ly=Ly,
-                plot=False,
-                save_path=None,
-                export_path=None,
-                return_torch=True,
-                out_device=device,
-                cm=RGB_scale,
-            )
+        if initial_object == 'random':
+            initial_theta = torch.rand((H, W), device=device) * 0.1 + torch.pi / 2
+            initial_phi = torch.rand((H, W), device=device) * 1.0 + torch.pi / 2
+        if initial_probe == 'gaussian':
+            initial_probe_amplitude = initialize_probe_amplitude(H, W, Lx, Ly, device)
 
         return cls(
             scan=scan,
@@ -782,23 +788,72 @@ class Reconstruction:
         )
         return recon
 
-    def run(self, num_iterations=100, batch_size=10, checkpoint_path=None, checkpoint_every=100):
+    def initialize_optimizer(
+        self,
+        optimizer_cls=torch.optim.Adam,
+        lr_theta=1e-2,
+        lr_phi=1e-2,
+        lr_object=1e-5,
+        lr_probe=1e-2,
+        **optimizer_kwargs,
+    ):
+        """Create and store an optimizer for the current reconstruction parameters."""
+        self.optimizer_config = {
+            "optimizer_cls": optimizer_cls,
+            "lr_theta": lr_theta,
+            "lr_phi": lr_phi,
+            "lr_object": lr_object,
+            "lr_probe": lr_probe,
+            **optimizer_kwargs,
+        }
+        self.optimizer = optimizer_cls([
+            {"params": [self.theta], "lr": lr_theta},
+            {"params": [self.phi], "lr": lr_phi},
+            {"params": [self.C, self.A1, self.A2], "lr": lr_object},
+            {"params": [self.probe_amplitude], "lr": lr_probe},
+        ], **optimizer_kwargs)
+        return self.optimizer
+
+    def run(
+        self,
+        num_iterations=100,
+        batch_size=10,
+        checkpoint_path=None,
+        checkpoint_every=100,
+        optimizer=None,
+        optimizer_cls=torch.optim.Adam,
+        lr_theta=1e-2,
+        lr_phi=1e-2,
+        lr_object=1e-5,
+        lr_probe=1e-2,
+        **optimizer_kwargs,
+    ):
         eps = 1e-12
         cdtype = torch.complex64
 
         probe_amplitude_start = self.probe_amplitude.detach()
         fluence_calc = torch.sum(torch.abs(probe_amplitude_start) ** 2)
+
+
         print(
             f"Calculated initial fluence from probe amplitude: {fluence_calc.item():.6e}, "
             f"target fluence: {self.fluence.item():.6e}"
         )
 
-        optimizer = torch.optim.Adam([
-            {"params": [self.theta], "lr": 1e-2},
-            {"params": [self.phi], "lr": 1e-2},
-            {"params": [self.C, self.A1, self.A2], "lr": 1e-5},
-            {"params": [self.probe_amplitude], "lr": 1e-2},
-        ])
+        if optimizer is None:
+            if self.optimizer is not None:
+                optimizer = self.optimizer
+            else:
+                optimizer = self.initialize_optimizer(
+                    optimizer_cls=optimizer_cls,
+                    lr_theta=lr_theta,
+                    lr_phi=lr_phi,
+                    lr_object=lr_object,
+                    lr_probe=lr_probe,
+                    **optimizer_kwargs,
+                )
+        else:
+            self.optimizer = optimizer
 
         n_scan = int(self.scan.positions.shape[0])
         if n_scan < 1:
