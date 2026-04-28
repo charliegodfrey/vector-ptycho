@@ -623,6 +623,7 @@ class Reconstruction:
         device=None,
         initial_object='random',
         initial_probe='gaussian',
+        initial_probe_amplitude=None,
     ):
         if device is None:
             device = I_meas.device
@@ -635,6 +636,14 @@ class Reconstruction:
             initial_phi = torch.rand((H, W), device=device) * 1.0 + torch.pi / 2
         if initial_probe == 'gaussian':
             initial_probe_amplitude = initialize_probe_amplitude(H, W, Lx, Ly, device)
+        if initial_probe == 'correct':
+            if initial_probe_amplitude is None:
+                raise ValueError(
+                    "initial_probe_amplitude must be provided when initial_probe='correct'"
+                )
+            initial_probe_amplitude = initial_probe_amplitude.to(device)
+        if initial_probe not in {'gaussian', 'correct'}:
+            raise ValueError("initial_probe must be one of {'gaussian', 'correct'}")
 
         return cls(
             scan=scan,
@@ -889,7 +898,32 @@ class Reconstruction:
             I_pred = model.simulate_all(probes, self.scan, position_indices=batch_idx)
             I_meas_batch = self.I_meas.index_select(1, batch_idx.to(self.I_meas.device))
 
-            loss = torch.mean((torch.sqrt(I_pred + eps) - torch.sqrt(I_meas_batch + eps)) ** 2)
+
+            Lx = torch.sin(self.theta) * torch.cos(self.phi)
+            Ly = torch.sin(self.theta) * torch.sin(self.phi)
+            Lz = torch.cos(self.theta)
+
+            # 2. Compute spatial gradients using finite differences
+            # Differences along the X-axis (width)
+            dx_Lx = torch.diff(Lx, dim=-1)
+            dx_Ly = torch.diff(Ly, dim=-1)
+            dx_Lz = torch.diff(Lz, dim=-1)
+
+            # Differences along the Y-axis (height)
+            dy_Lx = torch.diff(Lx, dim=-2)
+            dy_Ly = torch.diff(Ly, dim=-2)
+            dy_Lz = torch.diff(Lz, dim=-2)
+
+            grad_mag_x = torch.sqrt(dx_Lx**2 + dx_Ly**2 + dx_Lz**2 + 1e-8) # 1e-8 prevents NaN in sqrt at 0
+            grad_mag_y = torch.sqrt(dy_Lx**2 + dy_Ly**2 + dy_Lz**2 + 1e-8)
+
+            loss_x = torch.sum(grad_mag_x**2)
+            loss_y = torch.sum(grad_mag_y**2)
+
+            gradient_loss = loss_x + loss_y
+            loss = torch.mean((torch.sqrt(I_pred + eps) - torch.sqrt(I_meas_batch + eps)) ** 2)+ 1e-5*gradient_loss
+            #loss = torch.mean(I_pred - I_meas_batch * torch.log(I_pred + eps))#+1e-5*gradient_loss
+            
             loss.backward()
             optimizer.step()
 
@@ -934,129 +968,3 @@ class Reconstruction:
 
 
 
-def optimize_object_and_probe(scan, pol_angles, I_meas, H, W, num_iterations=100, device=None):
-    """
-    Reconstruct probes (different for each polarisation) theta, phi, C, A1, A2 from measured diffraction patterns.
-    This is an old function, a better batch-based approach is now being used and is absorbed into the Reconstruction Class.
-    Parameters
-    ----------
-    scan : ScanTrajectory
-        Scan positions.
-    I_meas : torch.Tensor
-        Measured intensities, shape (N_probes, N_scan, Hdet, Wdet)
-    H, W : int
-        Object map size.
-    num_iterations : int
-        Number of optimization steps.
-    device : torch.device or str
-        Device to use.
-    """
-    if device is None:
-        device = I_meas.device
-
-    eps = 1e-12
-    cdtype = torch.complex64
-
-    theta, phi, Mx, My, Mz = make_meron_antimeron_theta_phi(
-        Nx=W,
-        Ny=H,
-        Lx=Lx,
-        Ly=Ly,
-        plot=False,
-        save_path=None,
-        export_path=None,
-        return_torch=True,
-        out_device=device,
-        cm = RGB_scale
-    )
-
-    # Learnable parameters
-    theta = torch.nn.Parameter(torch.rand((H, W), device=device) * 0.01 + torch.pi/2)
-    phi   = torch.nn.Parameter(torch.rand((H, W), device=device) * 0.1 + torch.pi/2)
-
-    # Learnable parameters
-    theta = torch.nn.Parameter(theta+torch.rand((H, W), device=device) * 0.01)#torch.nn.Parameter(torch.rand((H, W), device=device) * 0.01 + torch.pi/2)
-    phi   = torch.nn.Parameter(phi+torch.rand((H, W), device=device) * 0.01)#torch.nn.Parameter(torch.rand((H, W), device=device) * 0.1 + torch.pi/2)
-
-
-    R=torch.sqrt(X**2+Y**2) #This helps with defining the probe
-    probe_radius_guess = 1.5
-    # Initialise a slightly different probe amplitude to that I actually made the simulation data with.
-    Diffuser = (torch.sqrt(1.5*X**2+3.0*Y**2)+torch.pi/3) #np.mod(0.1*(torch.sin(150*R)+torch.cos((Y*10+X*30)**2-0.8*(X*75-0.2))+torch.cos((Y*10-X*33)**2-0.4*(X*50-0.2))),1)
-    probe_amplitude = torch.nn.Parameter(torch.exp(2j*np.pi*Diffuser)*torch.exp(-1.5*R))
-    probes = []
-    for angle in pol_angles:
-        rad = np.deg2rad(angle)
-        jones_vec = torch.tensor([np.cos(rad) + 0j, np.sin(rad) + 0j], dtype=cdtype, device=device)
-        probes.append(Probe(probe_amplitude, jones_vec, fluence=fluence, normalized=False))
-    probe_amplitude = torch.nn.Parameter(probes[0].amplitude)
-    probe_amplitude_start = probes[0].amplitude
-    fluence_calc = torch.sum(torch.abs(probe_amplitude_start)**2)
-    print(f"Calculated initial fluence from probe amplitude: {fluence_calc.item():.6e}, target fluence: {fluence.item():.6e}")
-
-    optimizer = torch.optim.Adam([
-        {"params": [theta], "lr": 1e-1},
-        {"params": [phi], "lr": 1e-1},
-        {"params": [C, A1, A2], "lr": 1e-5},
-        {"params": [probe_amplitude], "lr": 0.8}
-        ])
-
-    loss_history = []
-
-    for iteration in range(num_iterations):
-        optimizer.zero_grad(set_to_none=True)
-
-        # Build Jones object from current parameters
-        neel = NeelObject(C, A1, A2)
-        J = neel.build_jones(theta, phi)
-        obj = JonesObject(J)
-
-        # Remake the probe array
-        probes = []
-        for angle in pol_angles:
-            rad = np.deg2rad(angle)
-            jones_vec = torch.tensor([np.cos(rad) + 0j, np.sin(rad) + 0j], dtype=cdtype, device=device)
-            probes.append(Probe(probe_amplitude, jones_vec, fluence=fluence, normalized=True))
-
-        # Forward model
-        model = ForwardModel(obj, Propagator(), Detector())
-        I_pred = model.simulate_all(probes, scan)
-        eps = 1e-8
-
-        fluence_calc = torch.sum(torch.abs(probe_amplitude)**2)
-        print(f"Calculated fluence from probe amplitude: {fluence_calc.item():.6e}, target fluence: {fluence.item():.6e}")
-        # Amplitude-based ptychographic loss
-        non_central_probe_cost = 0.0 #1e-3*torch.mean(torch.abs(probe_amplitude)**2*R**2) #This stops the probe from drifting by penalising amplitude at large R
-        loss = torch.mean((torch.sqrt(I_pred + eps) - torch.sqrt(I_meas + eps))**2) #+ 1e-1*((torch.sqrt(fluence + eps) - torch.sqrt(fluence_calc + eps))**2)
-        #loss = torch.mean((I_pred - I_meas) ** 2) #This MSE loss is not as good as the one above.
-        
-        #eps = 1e-8
-        #loss = torch.mean(I_pred - I_meas * torch.log(I_pred + eps)) #+ 1e-5 * (torch.var(theta) + torch.var(phi)) + 1e-5 * (torch.var(probe_amplitude)) # Add small regularization to prevent collapse
-        loss.backward()
-        optimizer.step()
-
-        #with torch.no_grad():
-        #    probe_amplitude *= torch.sqrt(fluence / torch.sum(torch.abs(probe_amplitude)**2))
-
-        loss_history.append(loss.item())
-
-        if iteration % 1 == 0:
-            print(f"Iter {iteration:4d} | Loss = {loss.item():.6e}")
-        
-        if iteration % 5 == 0:
-            plot_probe_maps(probe_amplitude.detach().numpy(), Lx, Ly)
-            plot_theta_phi_maps(theta.detach().numpy(), phi.detach().numpy(), Lx, Ly,theta_cmap='magma', phi_cmap=RGB_scale, label_axes=True)
-
-        if iteration % 5 == 0:
-            plt.plot(loss_history)
-            plt.show()
-
-    return {
-        "theta": theta.detach(),
-        "phi": phi.detach(),
-        "probe_amplitude": probe_amplitude.detach(),
-        "C": C.detach(),
-        "A1": A1.detach(),
-        "A2": A2.detach(),
-        "loss_history": loss_history,
-    }
