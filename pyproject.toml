@@ -10,6 +10,7 @@ requires-python = ">=3.9"
 dependencies = [
     "datetime>=5.5",
     "ipykernel>=6.31.0",
+    "ipympl>=0.10.0",
     "matplotlib>=3.9.4",
     "numpy>=2.0.2",
     "scipy>=1.13.1",
