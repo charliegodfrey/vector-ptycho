@@ -161,6 +161,124 @@ def plot_theta_phi_maps(theta, phi, Lx, Ly,
     return fig, axes
 
 
+
+
+def create_live_plotter(Lx, Ly,
+                       positions=None,
+                       theta_cmap='magma',
+                       phi_cmap='twilight',
+                       dx=0.0, dy=0.0,
+                       show_positions=False,
+                       label_positions=False,
+                       label_axes=True):
+    
+    '''
+    Generates a plotting function that can be called with new probe amplitude, theta, phi, and loss values to update the visualisation in real-time.
+
+    Use by creating an empty plot:
+    plot_update = create_live_plotter(Lx, Ly)
+    Then update it after every few ptycho iterations:
+    plot_update(probe, theta, phi, loss)
+
+    To save the current figure, pass a filename when calling the updater:
+    plot_update(probe, theta, phi, loss, save_filename='my_figure.png')
+
+    '''
+
+    fig, axes = plt.subplots(2, 3, figsize=(16, 10))
+    axes = axes.ravel()
+
+    ax_amp   = axes[0]
+    ax_phase = axes[1]
+    ax_theta = axes[2]
+    ax_phi   = axes[3]
+    ax_loss  = axes[4]
+
+    # Hide unused 6th subplot
+    axes[5].axis('off')
+
+    # --- Initial dummy data ---
+    dummy = np.zeros((10, 10))
+
+    im_amp = ax_amp.imshow(dummy, extent=[-Lx, Lx, -Ly, Ly],
+                           origin='lower', cmap='magma')
+    cbar_amp = fig.colorbar(im_amp, ax=ax_amp)
+    ax_amp.set_title("Probe Amplitude")
+
+    im_phase = ax_phase.imshow(dummy, extent=[-Lx, Lx, -Ly, Ly],
+                               origin='lower', cmap='twilight')
+    cbar_phase = fig.colorbar(im_phase, ax=ax_phase)
+    ax_phase.set_title("Probe Phase")
+
+    im_theta = ax_theta.imshow(dummy, extent=[-Lx, Lx, -Ly, Ly],
+                               origin='lower', cmap=theta_cmap,
+                               vmin=0, vmax=1)
+    cbar_theta = fig.colorbar(im_theta, ax=ax_theta)
+    ax_theta.set_title(r"$l_z$ heatmap")
+
+    im_phi = ax_phi.imshow(dummy, extent=[-Lx, Lx, -Ly, Ly],
+                           origin='lower', cmap=phi_cmap,
+                           vmin=0, vmax=180)
+    cbar_phi = fig.colorbar(im_phi, ax=ax_phi)
+    cbar_phi.set_ticks([0, 30, 60, 90, 120, 150, 180])
+    ax_phi.set_title(r"$\phi$ heatmap")
+
+    loss_line, = ax_loss.plot([], [])
+    ax_loss.set_title("Loss vs iteration")
+    ax_loss.set_xlabel("Iteration")
+    ax_loss.set_ylabel("Loss")
+    ax_loss.set_yscale('log')
+    
+    loss_history = []
+
+    display_handle = display(fig, display_id=True)
+
+    # --- Optional positions ---
+    if positions is not None:
+        pos = np.asarray(positions[:, :2])
+    else:
+        pos = None
+
+    def update(probe_amplitude, theta, phi, loss, save_filename=None):
+        probe_amplitude_np = _to_numpy(probe_amplitude)
+        theta_np = _to_numpy(theta)
+        phi_np   = _to_numpy(phi)
+
+
+        # --- Probe ---
+        im_amp.set_data(np.abs(probe_amplitude_np))
+        im_phase.set_data(np.angle(probe_amplitude_np))
+        im_amp.set_clim(vmin=np.min(np.abs(probe_amplitude_np)),vmax=np.max(np.abs(probe_amplitude_np)))
+        im_phase.set_clim(vmin=np.min(np.angle(probe_amplitude_np)),vmax=np.max(np.angle(probe_amplitude_np)))
+        
+        # --- Theta ---
+        theta_plot = np.abs(np.cos(theta_np))
+        im_theta.set_data(theta_plot)
+
+        # --- Phi ---
+        phi_deg = np.rad2deg(phi_np)
+        phi_plot = np.mod(phi_deg, 180)
+        im_phi.set_data(phi_plot)
+
+        # --- Loss ---
+        loss_history.append(_to_numpy(loss))
+        loss_line.set_data(range(len(loss_history)), loss_history)
+        ax_loss.relim()
+        ax_loss.autoscale_view()
+
+        # --- Overlay positions (only once ideally, but safe here) ---
+        if show_positions and pos is not None:
+            for ax in [ax_theta, ax_phi]:
+                ax.scatter(pos[:, 1], pos[:, 0],
+                           c='cyan', marker='x', s=12)
+
+        if save_filename is not None:
+            fig.savefig(save_filename, bbox_inches='tight')
+
+        display_handle.update(fig)
+
+    return update
+
 def im_display2(*images, titles=None, limits=None, save=False, name='name', c='viridis', bar=0):
     '''A new version of im_display which allows colour bars and changing the color map and saving'''
     fig, axes = plt.subplots(ncols=len(images))
@@ -273,7 +391,16 @@ class NeelObject:
         self.C = C
         self.A1 = A1
         self.A2 = A2
+    def build_jones_from_cartesian(self, lx, ly, lz):
+        """
+        Build Jones matrix from Cartesian components.
 
+        lx, ly, lz: real tensors (H, W)
+        """
+        theta = torch.acos(lz)
+        phi = torch.atan2(ly, lx)
+        return self.build_jones(theta, phi)
+    
     def build_jones(self, theta, phi):
         """
         Build Jones matrix from physical angles.
