@@ -319,13 +319,13 @@ eps = 1e-8
 # =========================
 def F(x):
     return torch.fft.fftshift(
-        torch.fft.fft2(torch.fft.fftshift(x, dim=(-2, -1)), norm='ortho'),
+        torch.fft.fft2(torch.fft.fftshift(x, dim=(-2, -1)), norm='forward'),
         dim=(-2, -1)
     )
 
 def iF(x):
     return torch.fft.ifftshift(
-        torch.fft.ifft2(torch.fft.ifftshift(x, dim=(-2, -1)), norm='ortho'),
+        torch.fft.ifft2(torch.fft.ifftshift(x, dim=(-2, -1)), norm='backward'),
         dim=(-2, -1)
     )
 
