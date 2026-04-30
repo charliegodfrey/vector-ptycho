@@ -397,7 +397,7 @@ class NeelObject:
 
         lx, ly, lz: real tensors (H, W)
         """
-        theta = torch.acos(lz)
+        theta = torch.acos(torch.clamp(lz, -1.0 + 1e-6, 1.0 - 1e-6))
         phi = torch.atan2(ly, lx)
         return self.build_jones(theta, phi)
     
