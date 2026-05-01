@@ -50,7 +50,7 @@ def plot_probe_maps(probe_amplitude, Lx, Ly):
     cbar1.set_label(r'$A$')
     axes[0].set_title('Probe Amplitude')
 
-    im2 = axes[1].imshow(np.angle(probe_amplitude), extent=[-Lx, Lx, -Ly, Ly], origin='lower', cmap='twilight')
+    im2 = axes[1].imshow(np.angle(probe_amplitude), extent=[-Lx, Lx, -Ly, Ly], origin='lower', cmap='twilight', vmin=-np.pi, vmax=np.pi)
     cbar2 = plt.colorbar(im2, ax=axes[1], fraction=0.046, pad=0.04)
     cbar2.set_label(r'$\psi$ [rad]')
     axes[1].set_title('Probe Phase')
@@ -206,7 +206,7 @@ def create_live_plotter(Lx, Ly,
     ax_amp.set_title("Probe Amplitude")
 
     im_phase = ax_phase.imshow(dummy, extent=[-Lx, Lx, -Ly, Ly],
-                               origin='lower', cmap='twilight')
+                               origin='lower', cmap='twilight', vmin=-np.pi, vmax=np.pi)
     cbar_phase = fig.colorbar(im_phase, ax=ax_phase)
     ax_phase.set_title("Probe Phase")
 
@@ -249,7 +249,7 @@ def create_live_plotter(Lx, Ly,
         im_amp.set_data(np.abs(probe_amplitude_np))
         im_phase.set_data(np.angle(probe_amplitude_np))
         im_amp.set_clim(vmin=np.min(np.abs(probe_amplitude_np)),vmax=np.max(np.abs(probe_amplitude_np)))
-        im_phase.set_clim(vmin=np.min(np.angle(probe_amplitude_np)),vmax=np.max(np.angle(probe_amplitude_np)))
+        im_phase.set_clim(vmin=-np.pi, vmax=np.pi)
         
         # --- Theta ---
         theta_plot = np.abs(np.cos(theta_np))
