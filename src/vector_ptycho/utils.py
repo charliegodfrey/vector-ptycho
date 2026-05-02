@@ -21,6 +21,13 @@ def normalise_neel(l):
     Lz = l[2] / mag
     return Lx, Ly, Lz
 
+def cartesian_to_spherical(l):
+    # Convert Cartesian to spherical coordinates (theta, phi)
+    lx_norm, ly_norm, lz_norm = normalise_neel(l)
+    theta = torch.acos(torch.clamp(lz_norm, -1.0 + 1e-6, 1.0 - 1e-6)) # Clamp to avoid NaNs from acos outside of [-1, 1]
+    phi = torch.atan2(ly_norm, lx_norm)
+    return theta, phi
+
 device = "cuda" if torch.cuda.is_available() else "cpu"
 cdtype = torch.complex64
 eps = 1e-8
