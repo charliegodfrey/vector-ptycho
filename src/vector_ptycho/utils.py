@@ -188,7 +188,15 @@ class ForwardModel:
         self.detector = detector
 
     def simulate_all(self, probes, scan, position_indices=None):
-        data = []
+        """
+        Batched simulation over probes and scan positions.
+
+        For each probe we precompute the shifted probe fields for every
+        scan position (shape: num_positions x H x W), apply the object
+        (broadcasting over positions), then perform a single batched FFT
+        across all positions for GPU efficiency. Returns a tensor of
+        shape (num_probes, num_positions, H, W).
+        """
 
         if position_indices is None:
             positions = scan.positions
@@ -196,19 +204,36 @@ class ForwardModel:
             idx = torch.as_tensor(position_indices, dtype=torch.long, device=scan.positions.device)
             positions = scan.positions.index_select(0, idx)
 
+        data = []
+
+        # positions is (P, 2)
         for probe in probes:
-            probe_data = []
+            amp = probe.amplitude  # (H, W)
 
-            for dy, dx in positions.tolist():
-                field = probe.shifted(int(dy), int(dx)).field()
-                field = self.obj.apply(field)
-                field = self.propagator.propagate(field)
-                I = self.detector.intensity(field)
+            # Build stacked shifted amplitudes for all positions: (P, H, W)
+            shifts = positions.tolist()
+            amps = torch.stack([torch.roll(amp, shifts=(int(dy), int(dx)), dims=(0, 1)) for dy, dx in shifts], dim=0)
 
-                probe_data.append(I)
+            # Create Jones field stacks for all positions: (P, H, W)
+            j0 = probe.jones_vector[0]
+            j1 = probe.jones_vector[1]
+            Ex = amps * j0
+            Ey = amps * j1
 
-            data.append(torch.stack(probe_data, dim=0))
+            # Apply object (Jones multiplication) in a batched manner.
+            field = JonesField(Ex, Ey)
+            field = self.obj.apply(field)
 
+            # Batched propagation (FFT) across positions
+            field = self.propagator.propagate(field)
+
+            # Compute intensities for all positions
+            I = self.detector.intensity(field)
+
+            # I has shape (P, H, W) for this probe
+            data.append(I)
+
+        # Stack over probes -> (num_probes, num_positions, H, W)
         return torch.stack(data, dim=0)
 
 def initialize_probe_amplitude(H, W, Lx, Ly, device):
