@@ -32,6 +32,47 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 cdtype = torch.complex64
 eps = 1e-8
 
+
+def _as_device_tensor(value, *, device=None, dtype=None):
+    if isinstance(value, torch.Tensor):
+        return value.to(device=device, dtype=dtype) if (device is not None or dtype is not None) else value
+    return torch.as_tensor(value, device=device, dtype=dtype)
+
+
+def _shift_complex_image(image, shifts):
+    """Shift a complex 2D image by sub-pixel amounts with differentiable sampling."""
+    if image.ndim != 2:
+        raise ValueError("image must have shape (H, W)")
+
+    device = image.device
+    height, width = image.shape
+
+    image_ri = torch.stack([image.real, image.imag], dim=0).unsqueeze(0)
+    image_ri = image_ri.expand(shifts.shape[0], -1, -1, -1)
+
+    yy, xx = torch.meshgrid(
+        torch.linspace(-1.0, 1.0, height, device=device, dtype=image.real.dtype),
+        torch.linspace(-1.0, 1.0, width, device=device, dtype=image.real.dtype),
+        indexing='ij',
+    )
+    base_grid = torch.stack([xx, yy], dim=-1).unsqueeze(0)
+
+    norm_x = 2.0 * shifts[:, 1] / max(width - 1, 1)
+    norm_y = 2.0 * shifts[:, 0] / max(height - 1, 1)
+    grid = base_grid.expand(shifts.shape[0], -1, -1, -1).clone()
+    grid[..., 0] = grid[..., 0] - norm_x[:, None, None]
+    grid[..., 1] = grid[..., 1] - norm_y[:, None, None]
+
+    shifted = torch.nn.functional.grid_sample(
+        image_ri,
+        grid,
+        mode='bilinear',
+        padding_mode='zeros',
+        align_corners=True,
+    )
+
+    return torch.complex(shifted[:, 0], shifted[:, 1])
+
 # =========================
 # Fourier operators
 # =========================
@@ -180,14 +221,17 @@ class ScanTrajectory:
     shift: tensor of shape (num_probes,num_positions, 2) containing the shifts for each sampling point.
     '''
     def __init__(self, positions, shifts=None):
+        self.positions_unshifted = _as_device_tensor(positions, device=device)
         if shifts is not None:
-            self.shifts = torch.tensor(shifts, device=device)
-            self.positions_unshifted = torch.tensor(positions, device=device)
-            self.positions =  torch.tensor(positions + shifts, device=device)
+            self.shifts = _as_device_tensor(shifts, device=device)
+            if not torch.is_floating_point(self.positions_unshifted) and torch.is_floating_point(self.shifts):
+                self.positions_unshifted = self.positions_unshifted.to(dtype=self.shifts.dtype)
+            elif torch.is_floating_point(self.positions_unshifted) and self.positions_unshifted.dtype != self.shifts.dtype:
+                self.shifts = self.shifts.to(dtype=self.positions_unshifted.dtype)
+            self.positions = self.positions_unshifted + self.shifts
         else:
-            self.shifts = torch.zeros_like(positions, device=device)
-            self.positions_unshifted = torch.tensor(positions, device=device)
-            self.positions =  torch.tensor(positions, device=device)
+            self.shifts = torch.zeros_like(self.positions_unshifted, device=device)
+            self.positions = self.positions_unshifted
 
 
 # =========================
@@ -221,10 +265,9 @@ class ForwardModel:
         for i, probe in enumerate(probes):
             amp = probe.amplitude  # (H, W)
 
-            # Build stacked shifted amplitudes for all positions: (num_probes, num_positions, 2)
-            # Extract the positions for this probe
-            shifts = positions[i]
-            amps = torch.stack([torch.roll(amp, shifts=(int(dy), int(dx)), dims=(0, 1)) for dy, dx in shifts], dim=0)
+            # Build stacked shifted amplitudes for all positions with differentiable sub-pixel sampling.
+            shifts = positions[i].to(dtype=amp.real.dtype)
+            amps = _shift_complex_image(amp, shifts)
 
             # Create Jones field stacks for all positions: (P, H, W)
             j0 = probe.jones_vector[0]

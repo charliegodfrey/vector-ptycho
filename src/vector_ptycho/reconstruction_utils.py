@@ -122,8 +122,9 @@ class PtychoReconstructionTrainer:
             'l_lr': 1e-1, 
             'CA_lr': 1e-5,
             'probe_lr': 1e-1,
-            'shift_lr': 1e-1
+            'shifts_lr': 1e-1
         }
+
 
         self.requires_grad_flags = requires_grad_flags or{
             'l': True,
@@ -150,8 +151,7 @@ class PtychoReconstructionTrainer:
         """Initialize learnable parameters."""
         self.l = torch.nn.Parameter(self.l.to(self.device))
         self.probe_amplitude = torch.nn.Parameter(self.probe_amplitude.to(self.device))
-        self.shifts = self.shifts.float()  # Ensure shifts are float for addition to positions
-        self.shifts = torch.nn.Parameter(self.shifts.to(self.device))
+        self.shifts = torch.nn.Parameter(self.shifts.to(self.device).float())
 
         if isinstance(self.C, torch.Tensor):
             self.C = torch.nn.Parameter(self.C.to(self.device))
@@ -377,7 +377,7 @@ class PtychoReconstructionTrainer:
 
             # Build probes
             probes = self._build_probes(normalized=True)
-            self.scan = ScanTrajectory(self.scan.positions, shifts=self.shifts) # Update scan with current shifts
+            self.scan = ScanTrajectory(self.scan.positions_unshifted, shifts=self.shifts) # Update scan with current shifts
             # Forward model
             model = ForwardModel(obj, Propagator(), Detector())
             I_pred = model.simulate_all(probes, self.scan)
