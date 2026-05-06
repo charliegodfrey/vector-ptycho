@@ -174,8 +174,20 @@ class Detector:
 # Scan trajectory
 # =========================
 class ScanTrajectory:
-    def __init__(self, positions):
-        self.positions = torch.tensor(positions, device=device)
+    '''Defines the scan positions for ptychography.
+    
+    positions: tensor of shape (num_probes, num_positions, 2) containing (y, x) shifts in lab coordinates.
+    shift: tensor of shape (num_probes,num_positions, 2) containing the shifts for each sampling point.
+    '''
+    def __init__(self, positions, shifts=None):
+        if shifts is not None:
+            self.shifts = torch.tensor(shifts, device=device)
+            self.positions_unshifted = torch.tensor(positions, device=device)
+            self.positions =  torch.tensor(positions + shifts, device=device)
+        else:
+            self.shifts = torch.zeros_like(positions, device=device)
+            self.positions_unshifted = torch.tensor(positions, device=device)
+            self.positions =  torch.tensor(positions, device=device)
 
 
 # =========================
@@ -206,12 +218,12 @@ class ForwardModel:
 
         data = []
 
-        # positions is (P, 2)
-        for probe in probes:
+        for i, probe in enumerate(probes):
             amp = probe.amplitude  # (H, W)
 
-            # Build stacked shifted amplitudes for all positions: (P, H, W)
-            shifts = positions.tolist()
+            # Build stacked shifted amplitudes for all positions: (num_probes, num_positions, 2)
+            # Extract the positions for this probe
+            shifts = positions[i]
             amps = torch.stack([torch.roll(amp, shifts=(int(dy), int(dx)), dims=(0, 1)) for dy, dx in shifts], dim=0)
 
             # Create Jones field stacks for all positions: (P, H, W)

@@ -1,9 +1,13 @@
+import torch
 import torch.nn as nn
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 from datetime import datetime
 import os
+
+from vector_ptycho.utils import *
+from vector_ptycho.plotting_utils import *
 
 
 class PtychoReconstructionTrainer:
@@ -19,6 +23,7 @@ class PtychoReconstructionTrainer:
         C,
         A1,
         A2,
+        shifts,
         device=None,
         loss_prefactors=None,
         optimizer_params=None,
@@ -27,7 +32,7 @@ class PtychoReconstructionTrainer:
         R_probe=None,
         R=None,
         fluence=None,
-        phi_cmap=RGB_scale,
+        phi_cmap='twilight',
         theta_cmap='magma',
         object_randomisation=False,
         probe_randomisation=False,
@@ -54,6 +59,8 @@ class PtychoReconstructionTrainer:
             Initial guess for the probe amplitude, shape (H, W).
         C, A1, A2 : torch.Tensor or complex
             XMLD/Jones constants.
+        shifts : torch.Tensor
+            Shifts for each probe and position, shape (N_probes, N_scan, 2).
         device : torch.device or str
             Device to use.
         loss_prefactors : dict
@@ -91,6 +98,7 @@ class PtychoReconstructionTrainer:
         self.C = C
         self.A1 = A1
         self.A2 = A2
+        self.shifts = shifts
         self.Lx = Lx
         self.Ly = Ly
         self.R_probe = R_probe
@@ -113,7 +121,8 @@ class PtychoReconstructionTrainer:
         self.optimizer_params = optimizer_params or {
             'l_lr': 1e-1, 
             'CA_lr': 1e-5,
-            'probe_lr': 1e-1
+            'probe_lr': 1e-1,
+            'shift_lr': 1e-1
         }
 
         self.requires_grad_flags = requires_grad_flags or{
@@ -121,6 +130,7 @@ class PtychoReconstructionTrainer:
             'C': True,
             'A1': True,
             'A2': True,
+            'shifts': True,
             'probe_amplitude': True
         }
 
@@ -140,6 +150,8 @@ class PtychoReconstructionTrainer:
         """Initialize learnable parameters."""
         self.l = torch.nn.Parameter(self.l.to(self.device))
         self.probe_amplitude = torch.nn.Parameter(self.probe_amplitude.to(self.device))
+        self.shifts = self.shifts.float()  # Ensure shifts are float for addition to positions
+        self.shifts = torch.nn.Parameter(self.shifts.to(self.device))
 
         if isinstance(self.C, torch.Tensor):
             self.C = torch.nn.Parameter(self.C.to(self.device))
@@ -161,7 +173,8 @@ class PtychoReconstructionTrainer:
         self.optimizer = torch.optim.AdamW([
             {"params": [self.l], "lr": self.optimizer_params['l_lr']},
             {"params": [self.C, self.A1, self.A2], "lr": self.optimizer_params['CA_lr']},
-            {"params": [self.probe_amplitude], "lr": self.optimizer_params['probe_lr']}
+            {"params": [self.probe_amplitude], "lr": self.optimizer_params['probe_lr']},
+            {"params": [self.shifts], "lr": self.optimizer_params['shifts_lr']}
         ])
 
         self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
@@ -182,6 +195,7 @@ class PtychoReconstructionTrainer:
             "C": self.C.detach().cpu(),
             "A1": self.A1.detach().cpu(),
             "A2": self.A2.detach().cpu(),
+            "shifts": self.shifts.detach().cpu(),
             "optimizer_state_dict": self.optimizer.state_dict(),
             "scheduler_state_dict": self.scheduler.state_dict(),
             "loss_history": self.loss_history,
@@ -199,7 +213,7 @@ class PtychoReconstructionTrainer:
         self.C = checkpoint["C"].to(self.device)
         self.A1 = checkpoint["A1"].to(self.device)
         self.A2 = checkpoint["A2"].to(self.device)
-
+        self.shifts = checkpoint["shifts"].to(self.device)
         #self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         #self.scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
 
@@ -363,7 +377,7 @@ class PtychoReconstructionTrainer:
 
             # Build probes
             probes = self._build_probes(normalized=True)
-
+            self.scan = ScanTrajectory(self.scan.positions, shifts=self.shifts) # Update scan with current shifts
             # Forward model
             model = ForwardModel(obj, Propagator(), Detector())
             I_pred = model.simulate_all(probes, self.scan)
@@ -424,6 +438,7 @@ class PtychoReconstructionTrainer:
             "C": self.C.detach(),
             "A1": self.A1.detach(),
             "A2": self.A2.detach(),
+            "shifts": self.shifts.detach(),
             "loss_history": self.loss_history,
             "optimizer_params": self.optimizer_params,
             "loss_prefactors": self.loss_prefactors,

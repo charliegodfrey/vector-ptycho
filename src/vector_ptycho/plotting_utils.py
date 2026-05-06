@@ -204,6 +204,18 @@ def plot_theta_phi_maps(theta, phi, Lx, Ly,
     plt.show()
     return fig, axes
 
+
+def plot_scan_positions(scan):
+    '''Check how the scan positions look after adding the shifts.'''
+    plt.figure(figsize=(6,6))
+    for i in range(scan.positions.shape[0]):
+        plt.scatter(scan.positions[i,:,1].cpu(), scan.positions[i,:,0].cpu(), label=f'Probe {i} shifts')
+    plt.xlabel('X shift (lab coordinates)')
+    plt.ylabel('Y shift (lab coordinates)')
+    plt.title('Probe positions with shifts')
+    plt.legend()
+    print('Positions after adding shifts:', scan.positions.shape)  # Should be (N_probes, N_positions, 2)
+
 def create_live_plotter(Lx, Ly,
                        positions=None,
                        theta_cmap='magma',
