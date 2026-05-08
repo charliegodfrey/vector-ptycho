@@ -6,7 +6,7 @@ readme = "README.md"
 authors = [
     { name = "Charlie Godfrey", email = "charliegodfrey13@gmail.com" }
 ]
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
     "datetime>=5.5",
     "ipykernel>=6.31.0",
@@ -21,6 +21,15 @@ dependencies = [
 
 [tool.uv]
 link-mode = "copy"
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu130" }
+torchvision = { index = "pytorch-cu130" }
 
 [build-system]
 requires = ["setuptools"]

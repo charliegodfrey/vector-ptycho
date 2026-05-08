@@ -1,7 +1,10 @@
 README.md
 pyproject.toml
+src/vector_ptycho/Neel_field_sim_utils.py
 src/vector_ptycho/__init__.py
+src/vector_ptycho/plotting_utils.py
 src/vector_ptycho/py.typed
+src/vector_ptycho/reconstruction_utils.py
 src/vector_ptycho/utils.py
 src/vector_ptycho.egg-info/PKG-INFO
 src/vector_ptycho.egg-info/SOURCES.txt
