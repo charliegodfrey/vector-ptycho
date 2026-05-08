@@ -78,12 +78,13 @@ def plot_probe_maps(probe_amplitude, Lx, Ly):
     Plot probe abs and phase.
     """
     fig, axes = plt.subplots(1, 2, figsize=(16, 5))
-    im1 = axes[0].imshow(np.abs(probe_amplitude), extent=[-Lx, Lx, -Ly, Ly], origin='lower', cmap='magma')
+    probe_amplitude_np = _to_numpy(probe_amplitude)
+    im1 = axes[0].imshow(np.abs(probe_amplitude_np), extent=[-Lx, Lx, -Ly, Ly], origin='lower', cmap='magma')
     cbar1 = plt.colorbar(im1, ax=axes[0], fraction=0.046, pad=0.04)
     cbar1.set_label(r'$A$')
     axes[0].set_title('Probe Amplitude')
 
-    im2 = axes[1].imshow(np.angle(probe_amplitude), extent=[-Lx, Lx, -Ly, Ly], origin='lower', cmap='twilight', vmin=-np.pi, vmax=np.pi)
+    im2 = axes[1].imshow(np.angle(probe_amplitude_np), extent=[-Lx, Lx, -Ly, Ly], origin='lower', cmap='twilight', vmin=-np.pi, vmax=np.pi)
     cbar2 = plt.colorbar(im2, ax=axes[1], fraction=0.046, pad=0.04)
     cbar2.set_label(r'$\psi$ [rad]')
     axes[1].set_title('Probe Phase')
@@ -208,7 +209,7 @@ def plot_theta_phi_maps(theta, phi, Lx, Ly,
 def plot_scan_positions(scan):
     '''Check how the scan positions look after adding the shifts.'''
     plt.figure(figsize=(6,6))
-    positions = scan.positions.detach().numpy()  # Shape should be (N_probes, N_positions, 2)
+    positions = scan.positions.detach().cpu().numpy()  # Shape should be (N_probes, N_positions, 2)
     for i in range(positions.shape[0]):
         plt.scatter(positions[i,:,1], positions[i,:,0], label=f'Probe {i} shifts')
     plt.xlabel('X shift (lab coordinates)')

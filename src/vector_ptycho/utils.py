@@ -6,6 +6,8 @@ import matplotlib.colors as mcolors
 from datetime import datetime
 import os
 
+device = "cuda" if torch.cuda.is_available() else "cpu"
+
 def _to_numpy(x):
     """Safely convert torch / array-like to numpy."""
     if hasattr(x, "detach"):  # torch tensor
@@ -28,12 +30,8 @@ def cartesian_to_spherical(l):
     phi = torch.atan2(ly_norm, lx_norm)
     return theta, phi
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
-cdtype = torch.complex64
-eps = 1e-8
 
-
-def _as_device_tensor(value, *, device=None, dtype=None):
+def _as_device_tensor(value, *, device=device, dtype=None):
     if isinstance(value, torch.Tensor):
         return value.to(device=device, dtype=dtype) if (device is not None or dtype is not None) else value
     return torch.as_tensor(value, device=device, dtype=dtype)
