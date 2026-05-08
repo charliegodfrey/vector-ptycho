@@ -247,6 +247,7 @@ def create_live_plotter(Lx, Ly,
     ax_theta = axes[2]
     ax_phi   = axes[3]
     ax_loss  = axes[4]
+    ax_positions = axes[5]
 
     # Hide unused 6th subplot
     axes[5].axis('off')
