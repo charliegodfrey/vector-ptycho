@@ -222,10 +222,12 @@ class ScanTrajectory:
         self.positions_unshifted = _as_device_tensor(positions, device=device)
         if shifts is not None:
             self.shifts = _as_device_tensor(shifts, device=device)
-            if not torch.is_floating_point(self.positions_unshifted) and torch.is_floating_point(self.shifts):
-                self.positions_unshifted = self.positions_unshifted.to(dtype=self.shifts.dtype)
-            elif torch.is_floating_point(self.positions_unshifted) and self.positions_unshifted.dtype != self.shifts.dtype:
-                self.shifts = self.shifts.to(dtype=self.positions_unshifted.dtype)
+            # Ensure both positions and shifts have the same data type for consistent computations
+            # They must both be floating point for the sub-pixel shift calculations to work correctly.
+            self.shifts = self.shifts.to(dtype=torch.float32)
+            self.positions_unshifted = self.positions_unshifted.to(dtype=torch.float32)
+            # Take the mean of shifts within each probe group to ensure the shifts are consistent across positions for each probe, then add to unshifted positions.
+            self.shifts = self.shifts.mean(dim=1, keepdim=True)
             self.positions = self.positions_unshifted + self.shifts
         else:
             self.shifts = torch.zeros_like(self.positions_unshifted, device=device)

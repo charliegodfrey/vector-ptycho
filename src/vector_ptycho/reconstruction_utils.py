@@ -413,7 +413,7 @@ class PtychoReconstructionTrainer:
                 self.save_checkpoint(checkpoint_out_path, iteration)
             '''
             # Update plots
-            if iteration % 3 == 0:
+            if iteration % 20 == 0:
                 theta = torch.acos(torch.clamp(lz_norm, -1.0 + 1e-6, 1.0 - 1e-6))
                 phi = torch.atan2(ly_norm, lx_norm)
                 
