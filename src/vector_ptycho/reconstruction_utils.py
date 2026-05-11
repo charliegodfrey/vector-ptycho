@@ -195,6 +195,8 @@ class PtychoReconstructionTrainer:
             "iteration": iteration,
             "l": self.l.detach().cpu(),
             "probe_amplitude": self.probe_amplitude.detach().cpu(),
+            "scan_positions": self.scan.positions.detach().cpu(),  # Assuming scan is serializable. If not, consider saving its parameters instead.
+            "shifts": self.scan.shifts.detach().cpu() if hasattr(self.scan, 'shifts') else None,
             "C": self.C.detach().cpu(),
             "A1": self.A1.detach().cpu(),
             "A2": self.A2.detach().cpu(),
@@ -217,6 +219,9 @@ class PtychoReconstructionTrainer:
         self.A1 = checkpoint["A1"].to(self.device)
         self.A2 = checkpoint["A2"].to(self.device)
         self.shifts = checkpoint["shifts"].to(self.device)
+        self.scan.positions = checkpoint["scan_positions"].to(self.device)
+        if hasattr(self.scan, 'shifts') and checkpoint["scan_shifts"] is not None:
+            self.scan.shifts = checkpoint["scan_shifts"].to(self.device)
         #self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         #self.scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
 
