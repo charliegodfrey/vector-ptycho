@@ -231,8 +231,6 @@ def create_live_plotter(Lx, Ly,
                        theta_cmap='magma',
                        phi_cmap='twilight',
                        dx=0.0, dy=0.0,
-                       show_positions=False,
-                       label_positions=False,
                        label_axes=True):
     
     '''
@@ -292,7 +290,12 @@ def create_live_plotter(Lx, Ly,
     ax_loss.set_xlabel("Iteration")
     ax_loss.set_ylabel("Loss")
     ax_loss.set_yscale('log')
-    
+
+
+    ax_positions.set_xlabel('X shift (lab coordinates)')
+    ax_positions.set_ylabel('Y shift (lab coordinates)')
+    ax_positions.set_title('Probe positions with shifts')
+
     loss_history = []
 
     display_handle = display(fig, display_id=True)
@@ -303,7 +306,9 @@ def create_live_plotter(Lx, Ly,
     else:
         pos = None
 
-    def update(probe_amplitude, theta, phi, loss, save_filename=None):
+    def update(probe_amplitude, theta, phi, loss, scan, scan_ref=None, save_filename=None):
+        '''Update the plots with new data. Call this function after each iteration of the ptychography reconstruction.'''
+
         probe_amplitude_np = _to_numpy(probe_amplitude)
         theta_np = _to_numpy(theta)
         phi_np   = _to_numpy(phi)
@@ -330,11 +335,26 @@ def create_live_plotter(Lx, Ly,
         ax_loss.relim()
         ax_loss.autoscale_view()
 
-        # --- Overlay positions (only once ideally, but safe here) ---
-        if show_positions and pos is not None:
-            for ax in [ax_theta, ax_phi]:
-                ax.scatter(pos[:, 1], pos[:, 0],
-                           c='cyan', marker='x', s=12)
+        # --- Positions ---
+        positions = scan.positions.detach().cpu().numpy()  # Shape should be (N_probes, N_positions, 2)
+
+
+        # Clear the plot and redraw
+        ax_positions.cla()
+        # Make a colour map, one colour per probe
+        cmap = plt.cm.get_cmap('tab10')
+        colours = [cmap(i) for i in range(positions.shape[0])]
+        for i in range(positions.shape[0]):
+            ax_positions.scatter(positions[i,:,1], positions[i,:,0], label=f'Probe {i} shifts', marker='o', c=colours[i])
+
+        if scan_ref is not None:
+            ref_positions = scan_ref.positions.detach().cpu().numpy()
+            for i in range(ref_positions.shape[0]):
+                ax_positions.scatter(ref_positions[i,:, 1], ref_positions[i,:, 0], c=colours[i], marker='x', s=30)
+        ax_positions.set_xlabel('X shift (lab coordinates)')
+        ax_positions.set_ylabel('Y shift (lab coordinates)')
+        ax_positions.set_title('Probe positions with shifts')
+        ax_positions.legend(loc='upper right')
 
         if save_filename is not None:
             fig.savefig(save_filename, bbox_inches='tight')

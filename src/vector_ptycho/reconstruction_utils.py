@@ -15,6 +15,7 @@ class PtychoReconstructionTrainer:
     def __init__(
         self,
         scan,
+        scan_ref,
         pol_angles,
         I_meas,
         H,
@@ -90,6 +91,7 @@ class PtychoReconstructionTrainer:
             Whether to use alternate optimization strategy.
         """
         self.scan = scan
+        self.scan_ref = scan_ref
         self.pol_angles = pol_angles
         self.I_meas = I_meas
         self.H = H
@@ -427,7 +429,7 @@ class PtychoReconstructionTrainer:
                     f"Active param: {active_param_names[(alternate_optimization_counter - 1) % num_grad_params] if self.alternate_optimization else 'All'}"
                 )
                 
-                plot_update(self.probe_amplitude, theta, phi, loss, save_filename=plot_filename)
+                plot_update(self.probe_amplitude, theta, phi, loss, self.scan, self.scan_ref, save_filename=plot_filename)
         if checkpoint_out_path:
             self.save_checkpoint(checkpoint_out_path, iteration)
 
