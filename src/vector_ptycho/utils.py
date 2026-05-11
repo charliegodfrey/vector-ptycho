@@ -6,6 +6,10 @@ import matplotlib.colors as mcolors
 from datetime import datetime
 import os
 
+from vector_ptycho.plotting_utils import *
+from vector_ptycho.Neel_field_sim_utils import *
+from vector_ptycho.reconstruction_utils import *
+
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 def _to_numpy(x):
@@ -85,6 +89,65 @@ def iF(x):
         torch.fft.ifft2(torch.fft.ifftshift(x, dim=(-2, -1)), norm='backward'),
         dim=(-2, -1)
     )
+
+
+# =========================
+# Coordinate / meshgrid helpers
+# =========================
+def real_space_meshgrid(H, W, dx, dy=None, origin='center', device=device, dtype=torch.float32):
+    """
+    Return real-space meshgrid coordinates for an image of shape (H, W).
+
+    Parameters
+    - H, W : ints, number of pixels (rows, cols)
+    - dx, dy : physical pixel sizes (m). If `dy` is None, `dy = dx`.
+    - origin : 'center' or 'corner'. 'center' places (0,0) at array centre.
+    - device, dtype : torch device and dtype for the returned tensors.
+
+    Returns (X, Y) each of shape (H, W) where X varies along columns and Y varies along rows.
+    Units are the same as `dx`/`dy` (e.g. metres).
+    """
+    if dy is None:
+        dy = dx
+
+    if origin == 'center':
+        y = (torch.arange(H, device=device, dtype=dtype) - (H - 1) / 2.0) * dx
+        x = (torch.arange(W, device=device, dtype=dtype) - (W - 1) / 2.0) * dy
+    else:
+        y = torch.arange(H, device=device, dtype=dtype) * dx
+        x = torch.arange(W, device=device, dtype=dtype) * dy
+
+    Y, X = torch.meshgrid(y, x, indexing='ij')
+    return X, Y
+
+
+def frequency_meshgrid(H, W, dx, dy=None, device=device, dtype=torch.float32):
+    """
+    Return spatial frequency meshgrid (fx, fy) for an image with pixel sizes dx, dy.
+
+    fx, fy units are cycles per unit length (e.g. 1/m).
+    """
+    if dy is None:
+        dy = dx
+
+    fx = torch.fft.fftshift(torch.fft.fftfreq(W, d=dy)).to(device=device, dtype=dtype)
+    fy = torch.fft.fftshift(torch.fft.fftfreq(H, d=dx)).to(device=device, dtype=dtype)
+
+    Fy, Fx = torch.meshgrid(fy, fx, indexing='ij')
+    return Fx, Fy
+
+
+def detector_meshgrid_from_real(H, W, dx, wavelength, z, dy=None, device=device, dtype=torch.float32):
+    """
+    Return detector-plane coordinates (X_det, Y_det) in metres for a far-field diffraction
+    pattern recorded at distance `z` for an object with real-space pixel size `dx`/`dy`.
+
+    Relation used: x_det = lambda * z * fx, where fx are spatial frequencies (cycles per metre).
+    """
+    Fx, Fy = frequency_meshgrid(H, W, dx, dy=dy, device=device, dtype=dtype)
+    X_det = Fx * wavelength * z
+    Y_det = Fy * wavelength * z
+    return X_det, Y_det
 
 # =========================
 # Core classes
@@ -191,7 +254,7 @@ class NeelObject:
 # =========================
 # Propagation & detection
 # =========================
-class Propagator:
+class Propagator():
     def propagate(self, field: JonesField):
         return JonesField(F(field.Ex), F(field.Ey))
 

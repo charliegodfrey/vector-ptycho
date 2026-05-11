@@ -6,14 +6,19 @@ import matplotlib.colors as mcolors
 from datetime import datetime
 import os
 
+from vector_ptycho.utils import *
+from vector_ptycho.plotting_utils import *
+from vector_ptycho.reconstruction_utils import *
+
+
 def make_meron_antimeron_theta_phi(
     Nx=300,
     Ny=300,
     Lx=10.0,
     Ly=None,
-    r1=(-2.5, 0.0),
-    r2=(2.5, 0.0),
-    sigma=0.5,
+    r1=(-0.8e-6, 0.0),
+    r2=(0.8e-6, 0.0),
+    sigma=0.25e-6,
     m0=0.95,
     phi0=np.pi / 2,
     align_sigma=5.0,
@@ -42,8 +47,8 @@ def make_meron_antimeron_theta_phi(
     r2 = np.asarray(r2, dtype=np.float32)
 
     # --- Grid ---
-    x = np.linspace(-Lx, Lx, Nx, dtype=np.float32)
-    y = np.linspace(-Ly, Ly, Ny, dtype=np.float32)
+    x = np.linspace(-Lx/2, Lx/2, Nx, dtype=np.float32)
+    y = np.linspace(-Ly/2, Ly/2, Ny, dtype=np.float32)
     X, Y = np.meshgrid(x, y, indexing='xy')
 
     def angle_vortex(Xg, Yg, r0):

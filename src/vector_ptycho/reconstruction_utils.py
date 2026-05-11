@@ -8,6 +8,7 @@ import os
 
 from vector_ptycho.utils import *
 from vector_ptycho.plotting_utils import *
+from vector_ptycho.Neel_field_sim_utils import *
 
 
 class PtychoReconstructionTrainer:

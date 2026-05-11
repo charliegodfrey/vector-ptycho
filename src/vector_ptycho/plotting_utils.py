@@ -6,8 +6,16 @@ import matplotlib.colors as mcolors
 from datetime import datetime
 import os
 
-from vector_ptycho.utils import _to_numpy
+from vector_ptycho.utils import *
+from vector_ptycho.Neel_field_sim_utils import *
+from vector_ptycho.reconstruction_utils import *
 
+
+def _to_numpy(x):
+    """Safely convert torch / array-like to numpy."""
+    if hasattr(x, "detach"):  # torch tensor
+        return x.detach().cpu().numpy()
+    return np.asarray(x)
 
 def plot_some_diffraction_patterns(I_sim, positions, scan_indices, probe_numbers):
     '''Plot a grid of diffraction patterns for specified probe numbers and scan indices.
@@ -26,7 +34,7 @@ def plot_some_diffraction_patterns(I_sim, positions, scan_indices, probe_numbers
         for j, scan_idx in enumerate(scan_indices):       # columns
             
             axes[i, j].imshow(
-                ((I_sim[probe_number, scan_idx].cpu()+1e-8)),
+                np.log10(I_sim[probe_number, scan_idx].cpu()+1e-8),
                 cmap='inferno'
             )
             
