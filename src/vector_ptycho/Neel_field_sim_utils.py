@@ -8,8 +8,6 @@ import os
 
 from vector_ptycho.utils import *
 from vector_ptycho.plotting_utils import *
-from vector_ptycho.reconstruction_utils import *
-
 
 def make_meron_antimeron_theta_phi(
     Nx=300,

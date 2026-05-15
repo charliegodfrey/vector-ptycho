@@ -22,9 +22,7 @@ class PtychoReconstructionTrainer:
         W,
         initial_l,
         initial_probe_amplitude,
-        C,
-        A1,
-        A2,
+        F_scat,
         shifts,
         device=None,
         loss_prefactors=None,
@@ -59,8 +57,8 @@ class PtychoReconstructionTrainer:
             Initial guess for the neel vector in Cartesian coordinates, shape (3, H, W).
         initial_probe_amplitude : torch.Tensor
             Initial guess for the probe amplitude, shape (H, W).
-        C, A1, A2 : torch.Tensor or complex
-            XMLD/Jones constants.
+        F_scat : array-like or torch.Tensor
+            Three-element vector containing the XMLD/Jones constants [C, A1, A2].
         shifts : torch.Tensor
             Shifts for each probe and position, shape (N_probes, N_scan, 2).
         device : torch.device or str
@@ -98,9 +96,10 @@ class PtychoReconstructionTrainer:
         self.W = W
         self.l = initial_l
         self.probe_amplitude = initial_probe_amplitude
-        self.C = C
-        self.A1 = A1
-        self.A2 = A2
+        # F_scat is required and must be a 3-element complex vector [C, A1, A2]
+        if F_scat is None:
+            raise ValueError("`F_scat` must be provided to PtychoReconstructionTrainer")
+        self.F_scat = F_scat
         self.shifts = shifts
         self.Lx = Lx
         self.Ly = Ly
@@ -131,9 +130,7 @@ class PtychoReconstructionTrainer:
 
         self.requires_grad_flags = requires_grad_flags or{
             'l': True,
-            'C': True,
-            'A1': True,
-            'A2': True,
+            'F_scat': True,
             'shifts': True,
             'probe_amplitude': True
         }
@@ -155,27 +152,24 @@ class PtychoReconstructionTrainer:
         self.l = torch.nn.Parameter(self.l.to(self.device))
         self.probe_amplitude = torch.nn.Parameter(self.probe_amplitude.to(self.device))
         self.shifts = torch.nn.Parameter(self.shifts.to(self.device).float())
-
-        if isinstance(self.C, torch.Tensor):
-            self.C = torch.nn.Parameter(self.C.to(self.device))
+        # F_scat is expected to be a 3-element complex vector: [C, A1, A2]
+        if isinstance(self.F_scat, torch.Tensor):
+            F = self.F_scat.to(self.device)
         else:
-            self.C = torch.nn.Parameter(torch.tensor(self.C, dtype=self.cdtype, device=self.device))
-        
-        if isinstance(self.A1, torch.Tensor):
-            self.A1 = torch.nn.Parameter(self.A1.to(self.device))
-        else:
-            self.A1 = torch.nn.Parameter(torch.tensor(self.A1, dtype=self.cdtype, device=self.device))
-        
-        if isinstance(self.A2, torch.Tensor):
-            self.A2 = torch.nn.Parameter(self.A2.to(self.device))
-        else:
-            self.A2 = torch.nn.Parameter(torch.tensor(self.A2, dtype=self.cdtype, device=self.device))
+            F = torch.tensor(self.F_scat, dtype=self.cdtype, device=self.device)
+        # Ensure shape (3,)
+        F = F.reshape(3)
+        self.F_scat = torch.nn.Parameter(F)
+        # Convenience references
+        self.C = self.F_scat[0]
+        self.A1 = self.F_scat[1]
+        self.A2 = self.F_scat[2]
 
     def _init_optimizers(self):
         """Initialize optimizer and scheduler."""
         self.optimizer = torch.optim.AdamW([
             {"params": [self.l], "lr": self.optimizer_params['l_lr']},
-            {"params": [self.C, self.A1, self.A2], "lr": self.optimizer_params['CA_lr']},
+            {"params": [self.F_scat], "lr": self.optimizer_params['CA_lr']},
             {"params": [self.probe_amplitude], "lr": self.optimizer_params['probe_lr']},
             {"params": [self.shifts], "lr": self.optimizer_params['shifts_lr']}
         ])
@@ -197,9 +191,7 @@ class PtychoReconstructionTrainer:
             "probe_amplitude": self.probe_amplitude.detach().cpu(),
             "scan_positions": self.scan.positions.detach().cpu(),  # Assuming scan is serializable. If not, consider saving its parameters instead.
             "shifts": self.scan.shifts.detach().cpu() if hasattr(self.scan, 'shifts') else None,
-            "C": self.C.detach().cpu(),
-            "A1": self.A1.detach().cpu(),
-            "A2": self.A2.detach().cpu(),
+            "F_scat": self.F_scat.detach().cpu(),
             "shifts": self.shifts.detach().cpu(),
             "optimizer_state_dict": self.optimizer.state_dict(),
             "scheduler_state_dict": self.scheduler.state_dict(),
@@ -215,9 +207,21 @@ class PtychoReconstructionTrainer:
         """Load checkpoint and restore all state."""
         self.l = checkpoint["l"].to(self.device)
         self.probe_amplitude = checkpoint["probe_amplitude"].to(self.device)
-        self.C = checkpoint["C"].to(self.device)
-        self.A1 = checkpoint["A1"].to(self.device)
-        self.A2 = checkpoint["A2"].to(self.device)
+        # Load F_scat if present, otherwise fall back to legacy keys
+        if "F_scat" in checkpoint:
+            F = checkpoint["F_scat"].to(self.device)
+        else:
+            # Legacy support
+            C = checkpoint.get("C")
+            A1 = checkpoint.get("A1")
+            A2 = checkpoint.get("A2")
+            if C is None or A1 is None or A2 is None:
+                raise KeyError("Checkpoint missing F_scat or legacy C/A1/A2 keys")
+            F = torch.stack([C, A1, A2]).to(self.device)
+        self.F_scat = torch.nn.Parameter(F)
+        self.C = self.F_scat[0]
+        self.A1 = self.F_scat[1]
+        self.A2 = self.F_scat[2]
         self.shifts = checkpoint["shifts"].to(self.device)
         self.scan.positions = checkpoint["scan_positions"].to(self.device)
         if hasattr(self.scan, 'shifts') and checkpoint["scan_shifts"] is not None:
@@ -379,7 +383,7 @@ class PtychoReconstructionTrainer:
             lx_norm, ly_norm, lz_norm, _ = self._build_normalized_components()
 
             # Build Jones object from current parameters
-            neel = NeelObject(self.C, self.A1, self.A2)
+            neel = NeelObject(self.F_scat)
             J = neel.build_jones_from_cartesian(lx=lx_norm, ly=ly_norm, lz=lz_norm)
             obj = JonesObject(J)
 
@@ -429,7 +433,7 @@ class PtychoReconstructionTrainer:
                 fluence_calc = torch.sum(torch.abs(self.probe_amplitude) ** 2)
                 print(
                     f"Iter {iteration:4d} | Loss = {loss.item():.6e} | "
-                    f"C, A1, A2: {self.C.item():.6e}, {self.A1.item():.6e}, {self.A2.item():.6e} | "
+                    f"F_scat: {self.F_scat[0].item():.6e}, {self.F_scat[1].item():.6e}, {self.F_scat[2].item():.6e} | "
                     f"Fluence: {fluence_calc.item():.6e} | "
                     f"Active param: {active_param_names[(alternate_optimization_counter - 1) % num_grad_params] if self.alternate_optimization else 'All'}"
                 )
@@ -443,9 +447,7 @@ class PtychoReconstructionTrainer:
         return {
             "l": self.l.detach(),
             "probe_amplitude": self.probe_amplitude.detach(),
-            "C": self.C.detach(),
-            "A1": self.A1.detach(),
-            "A2": self.A2.detach(),
+            "F_scat": self.F_scat.detach(),
             "shifts": self.shifts.detach(),
             "loss_history": self.loss_history,
             "optimizer_params": self.optimizer_params,

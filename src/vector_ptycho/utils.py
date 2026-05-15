@@ -6,17 +6,12 @@ import matplotlib.colors as mcolors
 from datetime import datetime
 import os
 
-from vector_ptycho.plotting_utils import *
+from vector_ptycho._shared import _to_numpy
 from vector_ptycho.Neel_field_sim_utils import *
-from vector_ptycho.reconstruction_utils import *
+
+# Avoid circular import - reconstruction_utils will import utils, so we don't import it here
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
-
-def _to_numpy(x):
-    """Safely convert torch / array-like to numpy."""
-    if hasattr(x, "detach"):  # torch tensor
-        return x.detach().cpu().numpy()
-    return np.asarray(x)
 
 
 def normalise_neel(l):
@@ -200,17 +195,28 @@ class JonesObject:
 # =========================
 
 class NeelObject:
-    def __init__(self, C, A1, A2):
+    def __init__(self, F_scat):
         """
-        Pure physics object — no optimisation variables.
+        Pure physics object — expects a single 3-element complex vector `F_scat`.
 
-        C  : complex scalar (charge scattering)
-        A1 : complex scalar (in-plane XMLD)
-        A2 : complex scalar (out-of-plane XMLD)
+        Usage:
+        - NeelObject(F_scat) where `F_scat` is an iterable/tensor of length 3
+          giving [C, A1, A2].
+
+        Internally `self.F_scat` stores the 3-element complex vector and
+        `self.C`, `self.A1`, `self.A2` are convenience references to the
+        individual components.
         """
-        self.C = C
-        self.A1 = A1
-        self.A2 = A2
+        F = F_scat
+        if isinstance(F, torch.Tensor):
+            F = F.detach()
+        F = torch.as_tensor(F)
+        if F.numel() != 3:
+            raise ValueError("F_scat must have 3 elements (C, A1, A2)")
+        if not torch.is_complex(F):
+            F = F.to(torch.complex64)
+        self.F_scat = F
+        self.C, self.A1, self.A2 = self.F_scat[0], self.F_scat[1], self.F_scat[2]
     def build_jones_from_cartesian(self, lx, ly, lz):
         """
         Build Jones matrix from Cartesian components.
@@ -223,8 +229,10 @@ class NeelObject:
     
     def build_jones(self, theta, phi):
         """
-        Build Jones matrix from physical angles.
-
+        Build Jones matrix from Neel vector polar angles theta and phi.
+        This uses the form of magnetic scattering for a magnetic ion in a spherical environment from:
+        Phys. Rev. B 82, 094403 – Published 1 September, 2010
+        DOI: https://doi.org/10.1103/PhysRevB.82.094403
         theta, phi: real tensors (H, W)
         returns: (H, W, 2, 2) complex
         """
@@ -233,15 +241,15 @@ class NeelObject:
         #theta = theta.to(torch.complex64)
         #phi   = phi.to(torch.complex64)
 
-        cos_t = torch.cos(theta)
+        #cos_t = torch.cos(theta)
         sin_t = torch.sin(theta)
         cos_p = torch.cos(phi)
         sin_p = torch.sin(phi)
 
-        Jxx = self.C + self.A1 * (cos_p**2 * sin_t**2) + self.A2 * (cos_t**2)
-        Jxy = self.A1 * (sin_p * cos_p * sin_t**2)
+        Jxx = (2/3)-self.F_scat[0]+self.F_scat[2]*(sin_t*cos_p)**2
+        Jxy = self.F_scat[2]*sin_t**2*sin_p
         Jyx = Jxy
-        Jyy = self.C + self.A1 * (sin_p**2 * sin_t**2) + self.A2 * (cos_t**2)
+        Jyy = (2/3)-self.F_scat[0]+self.F_scat[2]*(sin_t*sin_p)**2
 
         J = torch.stack([
             torch.stack([Jxx, Jxy], dim=-1),
