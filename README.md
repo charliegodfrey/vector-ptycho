@@ -15,36 +15,24 @@ The Physics-Informed part of this algorithm comes from several parts:
 * Also the loss penalises sharp gradients in the Neel field - this is constrained by the exchange stiffness of the magnetic material under inspection.
 * The loss can also penalise Neel vector orientations that may be energetically unfavourable - magnetocrystalline magnetic anisotropy.
 
-The complex Jones matrix (of the object) acts on a Jones vector (probe) to produce an exit wave just after the object. We have a probe which gets translated $P_{jk}(\textbf{r}) = P_{k}(r -r_j)$ which corresponds to the $k^{th}$ polarisation state at the $j^{th}$ position.
+The complex Jones matrix (of the object) acts on a Jones vector (probe) to produce an exit wave just after the object. We have a probe which gets translated $P_{jk}(\textbf{x}_1) = P_{k}(\textbf{x}_1 -\delta_j)$ which corresponds to the $k^{th}$ polarisation state at the $j^{th}$ position.
 $$
-\mathbf{\Psi_{jk}(r)} = O(\textbf{r})P_{jk}(\textbf{r})=
+\mathbf{\Psi_{jk}(\mathbf{x}_1)} = \textbf{O}(\mathbf{x}_1-\boldsymbol{\delta}_j)\textbf{p}_{jk}(\mathbf{x}_1) =
 \begin{pmatrix}
-\rho_{xx}(\textbf{r})
-&
-\rho_{yx}(\textbf{r})
-\\
-\rho_{xy}(\textbf{r})
-&
-\rho_{yy}(\textbf{r})
+    \rho_{xx}(\mathbf{x}_1-\boldsymbol{\delta}_j) & \rho_{xy}(\mathbf{\mathbf{x}_1-\boldsymbol{\delta}_j}) \\
+    \rho_{yx}(\mathbf{x}_1-\boldsymbol{\delta}_j) & \rho_{yy}(\mathbf{x}_1-\boldsymbol{\delta}_j)
 \end{pmatrix}
 \begin{pmatrix}
-P_{jk;x}(\textbf{r})
-\\
-P_{jk;y}(\textbf{r})
+    p_{jk;x}(\mathbf{x}_1) \\
+    p_{jk;y}(\mathbf{x}_1)
 \end{pmatrix}
 $$
 
-Now since we are interested in constructing the Neel field on the sample $\phi(\textbf{r})$ and $\theta(\textbf{r})$ we can write the Jones matrix in terms of the Neel vector direction. On-diagonal elements are a combination of charge scattering $C$ and XMLD. Offdiagonal elements are XMLD scattering of polarisation into different channels. An example of such a matrix could be the following:
+Now since we are interested in constructing the Neel field on the sample $\phi(\textbf{x}_1)$ and $\theta(\textbf{x}_1)$ we can write the Jones matrix in terms of the Neel vector direction. On-diagonal elements are a combination of charge scattering $C$ and XMLD. Offdiagonal elements are XMLD scattering of polarisation into different channels. An example of such a matrix could be the following for a Neel vector in spherical symmetry:
 $$
-\mathbf{O} =
+\textbf{O} = 2 \cdot
 \begin{pmatrix}
-C + A_1 \cos^2\!\phi \, \sin^2\!\theta + A_2 \cos^2\!\theta
-&
-A_2 \sin\!\phi \, \cos\!\phi \, \sin^2\!\theta
-\\
-A_2 \sin\!\phi \, \cos\!\phi \, \sin^2\!\theta
-&
-C + A_1 \sin^2\!\phi \, \sin^2\!\theta + A_2 \cos^2\!\theta
+    \frac{2}{3} - F^{(0)} + F^{(2)}(\sin\theta\cos \phi)^2 & F^{(2)}\sin^2\theta\cos\phi\sin\phi \\
+    F^{(2)}\sin^2\theta\cos\phi\sin\phi&\frac{2}{3} - F^{(0)} + F^{(2)}(\sin\theta\sin \phi)^2
 \end{pmatrix}
 $$
-However, in general this should be constructed from the magnetic ion symmetry.
