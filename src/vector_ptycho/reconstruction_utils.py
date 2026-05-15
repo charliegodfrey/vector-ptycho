@@ -58,7 +58,7 @@ class PtychoReconstructionTrainer:
         initial_probe_amplitude : torch.Tensor
             Initial guess for the probe amplitude, shape (H, W).
         F_scat : array-like or torch.Tensor
-            Three-element vector containing the XMLD/Jones constants [C, A1, A2].
+            Three-element vector containing the scattering factors.
         shifts : torch.Tensor
             Shifts for each probe and position, shape (N_probes, N_scan, 2).
         device : torch.device or str
@@ -122,7 +122,7 @@ class PtychoReconstructionTrainer:
         }
         self.optimizer_params = optimizer_params or {
             'l_lr': 1e-1, 
-            'CA_lr': 1e-5,
+            'F_scat_lr': 1e-5,
             'probe_lr': 1e-1,
             'shifts_lr': 1e-1
         }
@@ -152,24 +152,13 @@ class PtychoReconstructionTrainer:
         self.l = torch.nn.Parameter(self.l.to(self.device))
         self.probe_amplitude = torch.nn.Parameter(self.probe_amplitude.to(self.device))
         self.shifts = torch.nn.Parameter(self.shifts.to(self.device).float())
-        # F_scat is expected to be a 3-element complex vector: [C, A1, A2]
-        if isinstance(self.F_scat, torch.Tensor):
-            F = self.F_scat.to(self.device)
-        else:
-            F = torch.tensor(self.F_scat, dtype=self.cdtype, device=self.device)
-        # Ensure shape (3,)
-        F = F.reshape(3)
-        self.F_scat = torch.nn.Parameter(F)
-        # Convenience references
-        self.C = self.F_scat[0]
-        self.A1 = self.F_scat[1]
-        self.A2 = self.F_scat[2]
-
+        self.F_scat = torch.nn.Parameter(self.F_scat.to(self.device))
+        
     def _init_optimizers(self):
         """Initialize optimizer and scheduler."""
         self.optimizer = torch.optim.AdamW([
             {"params": [self.l], "lr": self.optimizer_params['l_lr']},
-            {"params": [self.F_scat], "lr": self.optimizer_params['CA_lr']},
+            {"params": [self.F_scat], "lr": self.optimizer_params['F_scat_lr']},
             {"params": [self.probe_amplitude], "lr": self.optimizer_params['probe_lr']},
             {"params": [self.shifts], "lr": self.optimizer_params['shifts_lr']}
         ])
@@ -207,21 +196,8 @@ class PtychoReconstructionTrainer:
         """Load checkpoint and restore all state."""
         self.l = checkpoint["l"].to(self.device)
         self.probe_amplitude = checkpoint["probe_amplitude"].to(self.device)
-        # Load F_scat if present, otherwise fall back to legacy keys
-        if "F_scat" in checkpoint:
-            F = checkpoint["F_scat"].to(self.device)
-        else:
-            # Legacy support
-            C = checkpoint.get("C")
-            A1 = checkpoint.get("A1")
-            A2 = checkpoint.get("A2")
-            if C is None or A1 is None or A2 is None:
-                raise KeyError("Checkpoint missing F_scat or legacy C/A1/A2 keys")
-            F = torch.stack([C, A1, A2]).to(self.device)
-        self.F_scat = torch.nn.Parameter(F)
-        self.C = self.F_scat[0]
-        self.A1 = self.F_scat[1]
-        self.A2 = self.F_scat[2]
+        self.F_scat = checkpoint.get("F_scat").to(self.device)
+        self.F_scat = torch.nn.Parameter(self.F_scat)
         self.shifts = checkpoint["shifts"].to(self.device)
         self.scan.positions = checkpoint["scan_positions"].to(self.device)
         if hasattr(self.scan, 'shifts') and checkpoint["scan_shifts"] is not None:
