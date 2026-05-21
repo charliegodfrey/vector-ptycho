@@ -26,15 +26,7 @@ The physics-informed aspect of this algorithm comes from several sources:
 
 The complex Jones matrix of the object acts on a Jones vector (probe) to produce an exit wave immediately after the object.
 
-The probe is translated according to
-
-```math
-P_{jk}(\mathbf{x}_1)
-=
-P_k(\mathbf{x}_1 - \boldsymbol{\delta}_j)
-```
-
-where $k$ indexes the polarization state and $j$ indexes the scan position.
+The object $\mathbf{O}$ is translated by $\boldsymbol{\delta}_j$ and $k$ indexes the polarization state and $j$ indexes the scan position.
 
 The exit wave is then
 
@@ -69,7 +61,13 @@ the Jones matrix can be written directly in terms of the Néel vector direction.
 - Diagonal elements contain contributions from charge scattering and XMLD.
 - Off-diagonal elements describe polarization mixing due to XMLD scattering.
 
-An example Jones matrix for a Néel vector $l_x = \sin\theta\cos\phi$, $l_y = \sin\theta\sin\phi$, $l_z = \cos\theta$ in spherical symmetry is
+For spherical symmetry a magnetic ion with magnetisation unit vector $\mathbf{\hat{m}}$ has the scattering factor $F$ for an incident polarisation $\epsilon_{in}$ and a scattered polarisation $\epsilon_{out}$ (see https://doi.org/10.1103/PhysRevB.82.094403):
+```math
+F_{\epsilon_{\mathrm{in}}\epsilon_{\mathrm{out}}}=F^{(0)}\left(\boldsymbol{\epsilon}_{\mathrm{in}}\cdot\boldsymbol{\epsilon}_{\mathrm{out}}^{*}\right)+F^{(1)}\left(\boldsymbol{\epsilon}_{\mathrm{in}}\times\boldsymbol{\epsilon}_{\mathrm{out}}^{*}\right)\cdot\hat{\mathbf{m}}+F^{(2)}\left[\left(\boldsymbol{\epsilon}_{\mathrm{out}}^{*}\cdot\hat{\mathbf{m}}\right)\left(\boldsymbol{\epsilon}_{\mathrm{in}}\cdot\hat{\mathbf{m}}\right)-\frac{1}{3}\left(\boldsymbol{\epsilon}_{\mathrm{in}}\cdot\boldsymbol{\epsilon}_{\mathrm{out}}^{*}\right)\right]
+```
+where $F^{(0)}$, $F^{(1)}$ and $F^{(2)}$ are the complex scattering constants associated with Thompson scattering, XMCD and XMLD in the soft x-ray regime.
+
+Taking the sum of two antiferromagnetically coupled ions an example Jones matrix for a Néel vector $l_x = \sin\theta\cos\phi$, $l_y = \sin\theta\sin\phi$, $l_z = \cos\theta$ is:
 
 ```math
 \mathbf{O}

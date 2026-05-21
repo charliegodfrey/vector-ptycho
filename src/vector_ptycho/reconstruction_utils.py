@@ -151,7 +151,10 @@ class PtychoReconstructionTrainer:
         """Initialize learnable parameters."""
         self.l = torch.nn.Parameter(self.l.to(self.device))
         self.probe_amplitude = torch.nn.Parameter(self.probe_amplitude.to(self.device))
-        self.shifts = torch.nn.Parameter(self.shifts.to(self.device).float())
+        shifts = self.shifts.to(self.device).float()
+        if shifts.ndim == 3 and shifts.shape[1] != 1:
+            shifts = shifts.mean(dim=1, keepdim=True)
+        self.shifts = torch.nn.Parameter(shifts)
         self.F_scat = torch.nn.Parameter(self.F_scat.to(self.device))
         
     def _init_optimizers(self):
@@ -365,7 +368,8 @@ class PtychoReconstructionTrainer:
 
             # Build probes
             probes = self._build_probes(normalized=True)
-            self.scan = ScanTrajectory(self.scan.positions_unshifted, shifts=self.shifts) # Update scan with current shifts
+            scan_shifts = self.shifts.expand(-1, self.scan.positions_unshifted.shape[1], -1)
+            self.scan = ScanTrajectory(self.scan.positions_unshifted, shifts=scan_shifts) # Update scan with current shifts
             # Forward model
             model = ForwardModel(obj, Propagator(), Detector())
             I_pred = model.simulate_all(probes, self.scan)

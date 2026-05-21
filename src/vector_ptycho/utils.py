@@ -227,7 +227,7 @@ class NeelObject:
         phi = torch.atan2(ly, lx)
         return self.build_jones(theta, phi)
     
-    def build_jones(self, theta, phi):
+    def build_jones(self, theta, phi, elements='full'):
         """
         Build Jones matrix from Neel vector polar angles theta and phi.
         This uses the form of magnetic scattering for a magnetic ion in a spherical environment from:
@@ -235,6 +235,8 @@ class NeelObject:
         DOI: https://doi.org/10.1103/PhysRevB.82.094403
         theta, phi: real tensors (H, W)
         returns: (H, W, 2, 2) complex
+
+        elements = 'diagonal'  # 'full', 'diagonal', or 'off-diagonal'
         """
 
         # Convert to complex for safe algebra
@@ -247,15 +249,28 @@ class NeelObject:
         sin_p = torch.sin(phi)
 
         Jxx = (2/3)-self.F_scat[0]+self.F_scat[2]*(sin_t*cos_p)**2
-        Jxy = self.F_scat[2]*sin_t**2*sin_p
+        Jxy = self.F_scat[2]*sin_t**2*sin_p #torch.zeros_like(Jxx)#
         Jyx = Jxy
         Jyy = (2/3)-self.F_scat[0]+self.F_scat[2]*(sin_t*sin_p)**2
 
-        J = torch.stack([
-            torch.stack([Jxx, Jxy], dim=-1),
-            torch.stack([Jyx, Jyy], dim=-1)
-        ], dim=-2)
+        if elements == 'off-diagonal':
+            J = torch.stack([
+            torch.stack([torch.zeros_like(Jxx), Jxy], dim=-1),
+            torch.stack([Jyx, torch.zeros_like(Jxx)], dim=-1)
+            ], dim=-2)
 
+        if elements == 'full':
+            J = torch.stack([
+                torch.stack([Jxx, Jxy], dim=-1),
+                torch.stack([Jyx, Jyy], dim=-1)
+            ], dim=-2)
+
+        if elements == 'diagonal':
+            J = torch.stack([
+                torch.stack([Jxx, torch.zeros_like(Jxx)], dim=-1),
+                torch.stack([torch.zeros_like(Jxx), Jyy], dim=-1)
+            ], dim=-2)
+        
         return J
 
 
@@ -290,15 +305,22 @@ class ScanTrajectory:
     shift: tensor of shape (num_probes,num_positions, 2) containing the shifts for each sampling point.
     '''
     def __init__(self, positions, shifts=None):
-        self.positions_unshifted = _as_device_tensor(positions, device=device)
+        self.positions_unshifted = _as_device_tensor(positions, device=device, dtype=torch.float32)
         if shifts is not None:
-            self.shifts = _as_device_tensor(shifts, device=device)
-            # Ensure both positions and shifts have the same data type for consistent computations
-            # They must both be floating point for the sub-pixel shift calculations to work correctly.
-            self.shifts = self.shifts.to(dtype=torch.float32)
-            self.positions_unshifted = self.positions_unshifted.to(dtype=torch.float32)
-            # Take the mean of shifts within each probe group to ensure the shifts are consistent across positions for each probe, then add to unshifted positions.
-            self.shifts = self.shifts.mean(dim=1, keepdim=True)
+            shifts = _as_device_tensor(shifts, device=device, dtype=torch.float32)
+
+            if shifts.ndim == 2:
+                shifts = shifts.unsqueeze(1)
+
+            if shifts.shape[1] == 1 and self.positions_unshifted.shape[1] != 1:
+                shifts = shifts.expand(-1, self.positions_unshifted.shape[1], -1)
+
+            if shifts.shape != self.positions_unshifted.shape:
+                raise ValueError(
+                    "shifts must have shape (num_probes, num_positions, 2) or (num_probes, 1, 2)"
+                )
+
+            self.shifts = shifts
             self.positions = self.positions_unshifted + self.shifts
         else:
             self.shifts = torch.zeros_like(self.positions_unshifted, device=device)

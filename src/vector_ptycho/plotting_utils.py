@@ -3,6 +3,9 @@ import torch.nn as nn
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
+from matplotlib.colors import hsv_to_rgb
+from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+from IPython.display import display
 from datetime import datetime
 import os
 
@@ -10,6 +13,78 @@ from vector_ptycho._shared import _to_numpy
 from vector_ptycho.Neel_field_sim_utils import *
 
 # Avoid circular import by importing reconstruction_utils only when needed
+
+def complex_to_rgb(Z, gamma=0.7):
+    """Convert complex-valued array to RGB using HSV color space.
+    
+    Hue = phase, Brightness = magnitude (with gamma correction)
+    """
+    amp = np.abs(Z)
+    phase = np.angle(Z)
+
+    amp = amp / (amp.max() + 1e-10)  # Avoid division by zero
+    amp = amp**gamma
+
+    h = (phase + np.pi) / (2 * np.pi)
+    s = np.ones_like(h)
+    v = amp
+
+    hsv = np.stack([h, s, v], axis=-1)
+    return hsv_to_rgb(hsv)
+
+
+def neel_direction_to_rgb(theta, phi, gamma=0.7, phi_cmap='twilight'):
+    """Convert a Néel-vector direction to RGB.
+
+    Phi is mapped through the supplied colormap with pi-periodic wrapping,
+    and brightness fades with |Lz| = |cos(theta)| so the in-plane direction
+    is dimmed as the out-of-plane component grows.
+    """
+    lz = np.abs(np.cos(theta))
+    brightness = np.clip(1.0 - lz, 0.0, 1.0)
+    brightness = brightness**gamma
+
+    phi_norm = np.mod(phi, np.pi) / np.pi
+    phi_rgb = plt.get_cmap(phi_cmap)(phi_norm)[..., :3]
+    return phi_rgb * brightness[..., np.newaxis]
+
+
+def make_color_wheel_rgba(gamma=1.0, Nw=200):
+    u = np.linspace(-1, 1, Nw)
+    v = np.linspace(-1, 1, Nw)
+    U, V = np.meshgrid(u, v)
+
+    Rw = np.sqrt(U**2 + V**2)
+    Phiw = np.arctan2(V, U)
+
+    magnitude = np.clip(Rw, 0, 1)
+
+    Zw = magnitude * np.exp(1j * Phiw)
+    wheel_rgb = complex_to_rgb(Zw, gamma=gamma)
+
+    alpha = np.ones_like(Rw)
+    alpha[Rw > 1] = 0.0
+    return np.dstack([wheel_rgb, alpha])
+
+
+def make_neel_color_wheel_rgba(phi_cmap='twilight', gamma=1.0, Nw=200):
+    u = np.linspace(-1, 1, Nw)
+    v = np.linspace(-1, 1, Nw)
+    U, V = np.meshgrid(u, v)
+
+    Rw = np.sqrt(U**2 + V**2)
+    Phiw = np.arctan2(V, U)
+
+    magnitude = np.clip(Rw, 0, 1)
+    magnitude = magnitude**gamma
+
+    phi_norm = np.mod(Phiw, np.pi) / np.pi
+    phi_rgb = plt.get_cmap(phi_cmap)(phi_norm)[..., :3]
+    wheel_rgb = phi_rgb * magnitude[..., np.newaxis]
+
+    alpha = np.ones_like(Rw)
+    alpha[Rw > 1] = 0.0
+    return np.dstack([wheel_rgb, alpha])
 
 __all__ = [
     'plot_some_diffraction_patterns',
@@ -87,19 +162,56 @@ def make_vector_color_map(plot=False):
 
 def plot_probe_maps(probe_amplitude, Lx, Ly):
     """
-    Plot probe abs and phase.
+    Plot complex probe as RGB (phase as hue, magnitude as brightness).
     """
-    fig, axes = plt.subplots(1, 2, figsize=(16, 5))
+    fig, ax = plt.subplots(1, 1, figsize=(8, 8))
     probe_amplitude_np = _to_numpy(probe_amplitude)
-    im1 = axes[0].imshow(np.abs(probe_amplitude_np), extent=[-Lx, Lx, -Ly, Ly], origin='lower', cmap='magma')
-    cbar1 = plt.colorbar(im1, ax=axes[0], fraction=0.046, pad=0.04)
-    cbar1.set_label(r'$A$')
-    axes[0].set_title('Probe Amplitude')
-
-    im2 = axes[1].imshow(np.angle(probe_amplitude_np), extent=[-Lx, Lx, -Ly, Ly], origin='lower', cmap='twilight', vmin=-np.pi, vmax=np.pi)
-    cbar2 = plt.colorbar(im2, ax=axes[1], fraction=0.046, pad=0.04)
-    cbar2.set_label(r'$\psi$ [rad]')
-    axes[1].set_title('Probe Phase')
+    
+    # Convert complex probe to RGB
+    probe_rgb = complex_to_rgb(probe_amplitude_np)
+    
+    ax.imshow(probe_rgb, extent=[-Lx, Lx, -Ly, Ly], origin='lower')
+    ax.set_title('Probe (Complex as RGB)')
+    ax.set_xlabel(r'$x$ [m]')
+    ax.set_ylabel(r'$y$ [m]')
+    
+    # Add color wheel inset
+    axins = inset_axes(
+        ax,
+        width="25%",
+        height="25%",
+        loc='upper right',
+        borderpad=1
+    )
+    
+    # Create color wheel
+    Nw = 200
+    u = np.linspace(-1, 1, Nw)
+    v = np.linspace(-1, 1, Nw)
+    U, V = np.meshgrid(u, v)
+    
+    Rw = np.sqrt(U**2 + V**2)
+    Phiw = np.arctan2(V, U)
+    
+    magnitude = 1 - Rw
+    magnitude = np.clip(magnitude, 0, 1)
+    
+    Zw = magnitude * np.exp(1j * Phiw)
+    wheel_rgb = complex_to_rgb(Zw, gamma=1.0)
+    
+    alpha = np.ones_like(Rw)
+    alpha[Rw > 1] = 0.0
+    wheel_rgba = np.dstack([wheel_rgb, alpha])
+    
+    axins.imshow(wheel_rgba, origin='lower', extent=[-1, 1, -1, 1])
+    axins.set_xticks([])
+    axins.set_yticks([])
+    axins.set_facecolor((0, 0, 0, 0))
+    
+    for spine in axins.spines.values():
+        spine.set_visible(False)
+    
+    plt.tight_layout()
     plt.show()
 
 
@@ -250,51 +362,32 @@ def create_live_plotter(Lx, Ly,
 
     '''
 
-    fig, axes = plt.subplots(2, 3, figsize=(16, 10))
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
     axes = axes.ravel()
 
-    ax_amp   = axes[0]
-    ax_phase = axes[1]
-    ax_theta = axes[2]
-    ax_phi   = axes[3]
-    ax_loss  = axes[4]
-    ax_positions = axes[5]
+    ax_probe = axes[0]  # Complex probe as RGB
+    ax_neel  = axes[1]
+    ax_loss  = axes[2]
+    ax_positions = axes[3]
 
-    # Hide unused 6th subplot
-    axes[5].axis('off')
+    # --- Initial dummy data for probe RGB ---
+    dummy_rgb = np.zeros((10, 10, 3))
 
-    # --- Initial dummy data ---
-    dummy = np.zeros((10, 10))
+    im_probe = ax_probe.imshow(dummy_rgb, extent=[-Lx, Lx, -Ly, Ly],
+                               origin='lower')
+    ax_probe.set_title("Probe (Complex as RGB)")
+    ax_probe.set_aspect('equal', adjustable='box')
 
-    im_amp = ax_amp.imshow(dummy, extent=[-Lx, Lx, -Ly, Ly],
-                           origin='lower', cmap='magma')
-    cbar_amp = fig.colorbar(im_amp, ax=ax_amp)
-    ax_amp.set_title("Probe Amplitude")
-
-    im_phase = ax_phase.imshow(dummy, extent=[-Lx, Lx, -Ly, Ly],
-                               origin='lower', cmap='twilight', vmin=-np.pi, vmax=np.pi)
-    cbar_phase = fig.colorbar(im_phase, ax=ax_phase)
-    ax_phase.set_title("Probe Phase")
-
-    im_theta = ax_theta.imshow(dummy, extent=[-Lx, Lx, -Ly, Ly],
-                               origin='lower', cmap=theta_cmap,
-                               vmin=0, vmax=1)
-    cbar_theta = fig.colorbar(im_theta, ax=ax_theta)
-    ax_theta.set_title(r"$l_z$ heatmap")
-
-    im_phi = ax_phi.imshow(dummy, extent=[-Lx, Lx, -Ly, Ly],
-                           origin='lower', cmap=phi_cmap,
-                           vmin=0, vmax=180)
-    cbar_phi = fig.colorbar(im_phi, ax=ax_phi)
-    cbar_phi.set_ticks([0, 30, 60, 90, 120, 150, 180])
-    ax_phi.set_title(r"$\phi$ heatmap")
+    im_neel = ax_neel.imshow(dummy_rgb, extent=[-Lx, Lx, -Ly, Ly],
+                             origin='lower')
+    ax_neel.set_title(r"N\'{e}el direction ($\phi$ cmap, $|L_z|$ brightness)")
+    ax_neel.set_aspect('equal', adjustable='box')
 
     loss_line, = ax_loss.plot([], [])
     ax_loss.set_title("Loss vs iteration")
     ax_loss.set_xlabel("Iteration")
     ax_loss.set_ylabel("Loss")
     ax_loss.set_yscale('log')
-
 
     ax_positions.set_xlabel('X shift (lab coordinates)')
     ax_positions.set_ylabel('Y shift (lab coordinates)')
@@ -310,6 +403,40 @@ def create_live_plotter(Lx, Ly,
     else:
         pos = None
 
+    # --- Add color wheel inset to probe plot ---
+    axins = inset_axes(
+        ax_probe,
+        width="25%",
+        height="25%",
+        loc='upper right',
+        borderpad=1
+    )
+    
+    wheel_rgba = make_color_wheel_rgba(gamma=1.0)
+    axins.imshow(wheel_rgba, origin='lower', extent=[-1, 1, -1, 1])
+    axins.set_xticks([])
+    axins.set_yticks([])
+    axins.set_facecolor((0, 0, 0, 0))
+    
+    for spine in axins.spines.values():
+        spine.set_visible(False)
+
+    ax_neelins = inset_axes(
+        ax_neel,
+        width="25%",
+        height="25%",
+        loc='upper right',
+        borderpad=1
+    )
+
+    ax_neelins.imshow(make_neel_color_wheel_rgba(phi_cmap=phi_cmap, gamma=1.0), origin='lower', extent=[-1, 1, -1, 1])
+    ax_neelins.set_xticks([])
+    ax_neelins.set_yticks([])
+    ax_neelins.set_facecolor((0, 0, 0, 0))
+
+    for spine in ax_neelins.spines.values():
+        spine.set_visible(False)
+
     def update(probe_amplitude, theta, phi, loss, scan, scan_ref=None, save_filename=None):
         '''Update the plots with new data. Call this function after each iteration of the ptychography reconstruction.'''
 
@@ -317,21 +444,13 @@ def create_live_plotter(Lx, Ly,
         theta_np = _to_numpy(theta)
         phi_np   = _to_numpy(phi)
 
-
-        # --- Probe ---
-        im_amp.set_data(np.abs(probe_amplitude_np))
-        im_phase.set_data(np.angle(probe_amplitude_np))
-        im_amp.set_clim(vmin=np.min(np.abs(probe_amplitude_np)),vmax=np.max(np.abs(probe_amplitude_np)))
-        im_phase.set_clim(vmin=-np.pi, vmax=np.pi)
+        # --- Probe as complex RGB ---
+        probe_rgb = complex_to_rgb(probe_amplitude_np)
+        im_probe.set_data(probe_rgb)
         
-        # --- Theta ---
-        theta_plot = np.abs(np.cos(theta_np))
-        im_theta.set_data(theta_plot)
-
-        # --- Phi ---
-        phi_deg = np.rad2deg(phi_np)
-        phi_plot = np.mod(phi_deg, 180)
-        im_phi.set_data(phi_plot)
+        # --- Néel direction ---
+        neel_rgb = neel_direction_to_rgb(theta_np, phi_np, phi_cmap=phi_cmap)
+        im_neel.set_data(neel_rgb)
 
         # --- Loss ---
         loss_history.append(_to_numpy(loss))
@@ -341,7 +460,6 @@ def create_live_plotter(Lx, Ly,
 
         # --- Positions ---
         positions = scan.positions.detach().cpu().numpy()  # Shape should be (N_probes, N_positions, 2)
-
 
         # Clear the plot and redraw
         ax_positions.cla()
@@ -358,6 +476,7 @@ def create_live_plotter(Lx, Ly,
         ax_positions.set_xlabel('X shift (lab coordinates)')
         ax_positions.set_ylabel('Y shift (lab coordinates)')
         ax_positions.set_title('Probe positions with shifts')
+        ax_positions.set_aspect('equal', adjustable='box')
         ax_positions.legend(loc='upper right')
 
         if save_filename is not None:
