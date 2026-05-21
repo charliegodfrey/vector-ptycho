@@ -110,6 +110,24 @@ def make_neel_color_wheel_rgba(phi_cmap='twilight', gamma=1.0, Nw=200):
     alpha[Rw > 1] = 0.0
     return np.dstack([wheel_rgb, alpha])
 
+
+def _decorate_probe_color_wheel_axes(ax, label_color='white'):
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_facecolor((0, 0, 0, 0))
+
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+
+    ax.axhline(0, color=label_color, linewidth=0.8, alpha=0.75)
+    ax.axvline(0, color=label_color, linewidth=0.8, alpha=0.75)
+
+    text_kwargs = dict(color=label_color, fontsize=12, ha='center', va='center')
+    ax.text(1.18, 0.0, r'$0$', **text_kwargs)
+    ax.text(0.0, 1.18, r'$\pi/2$', **text_kwargs)
+    ax.text(-1.18, 0.0, r'$\pi$', **text_kwargs)
+    ax.text(0.0, -1.18, r'$3\pi/2$', **text_kwargs)
+
 __all__ = [
     'plot_some_diffraction_patterns',
     'make_vector_color_map',
@@ -188,7 +206,7 @@ def plot_probe_maps(probe_amplitude, Lx, Ly):
     """
     Plot complex probe as RGB (phase as hue, magnitude as brightness).
     """
-    fig, ax = plt.subplots(1, 1, figsize=(8, 8))
+    fig, ax = plt.subplots(1, 1, figsize=(6, 6))
     probe_amplitude_np = _to_numpy(probe_amplitude)
     
     # Convert complex probe to RGB
@@ -202,10 +220,10 @@ def plot_probe_maps(probe_amplitude, Lx, Ly):
     # Add color wheel inset
     axins = inset_axes(
         ax,
-        width="25%",
-        height="25%",
+        width="18%",
+        height="18%",
         loc='upper right',
-        borderpad=1
+        borderpad=2
     )
     
     # Create color wheel
@@ -228,12 +246,7 @@ def plot_probe_maps(probe_amplitude, Lx, Ly):
     wheel_rgba = np.dstack([wheel_rgb, alpha])
     
     axins.imshow(wheel_rgba, origin='lower', extent=[-1, 1, -1, 1])
-    axins.set_xticks([])
-    axins.set_yticks([])
-    axins.set_facecolor((0, 0, 0, 0))
-    
-    for spine in axins.spines.values():
-        spine.set_visible(False)
+    _decorate_probe_color_wheel_axes(axins)
     
     plt.tight_layout()
     plt.show()
@@ -276,64 +289,39 @@ def plot_theta_phi_maps(theta, phi, Lx, Ly,
     if phi_cmap is None:
         phi_cmap = 'hsv'
  
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+    fig, axes = plt.subplots(1, 1, figsize=(6, 6))
 
     # --- Theta heatmap ---
     theta_plot = np.abs(np.cos(theta_np))
 
-    im1 = axes[0].imshow(
-        theta_plot,
+    # --- Phi visualization: colour = phi (pi-periodic), brightness = |L_z| ---
+    neel_rgb = neel_direction_to_rgb(theta_np, phi_np, phi_cmap=phi_cmap)
+
+    im = axes.imshow(
+        neel_rgb,
         extent=[-Lx, Lx, -Ly, Ly],
-        origin='lower',
-        cmap=theta_cmap,
-        vmin=0,
-        vmax=1
+        origin='lower'
     )
-    cbar1 = plt.colorbar(im1, ax=axes[0], fraction=0.046, pad=0.04)
-    cbar1.set_label(r'$|l_z|$')
-    axes[0].set_title(r'$l_z$ heatmap')
 
-    # --- Overlay positions (theta panel) ---
-    if show_positions and pos is not None:
-        axes[0].scatter(pos[:, 1], pos[:, 0],
-                        c='cyan', marker='x', s=12,
-                        label='Scan positions')
-
-        if label_positions:
-            for k, (dy_pos, dx_pos) in enumerate(pos):
-                axes[0].text(dx_pos - dx, dy_pos - dy, str(k),
-                             color='white', fontsize=8,
-                             ha='center', va='top')
-
-        axes[0].legend(loc='upper right')
-
-    # --- Phi heatmap ---
-    phi_deg = np.rad2deg(phi_np)
-    phi_plot = np.mod(phi_deg, 180)
-
-    im2 = axes[1].imshow(
-        phi_plot,
-        extent=[-Lx, Lx, -Ly, Ly],
-        origin='lower',
-        cmap=phi_cmap,
-        vmin=0,
-        vmax=180
+    # Add Neel color wheel inset to explain the mapping
+    ax_neelins_local = inset_axes(
+        axes,
+        width="18%",
+        height="18%",
+        loc='upper right',
+        borderpad=2
     )
-    cbar2 = plt.colorbar(im2, ax=axes[1], fraction=0.046, pad=0.04)
-    cbar2.set_label(r'$\phi$ [deg]')
-    cbar2.set_ticks([0, 30, 60, 90, 120, 150, 180])
-    axes[1].set_title(r'$\phi$ heatmap')
+    ax_neelins_local.imshow(make_neel_color_wheel_rgba(phi_cmap=phi_cmap, gamma=1.0), origin='lower', extent=[-1, 1, -1, 1])
+    _decorate_probe_color_wheel_axes(ax_neelins_local)
+
+    axes.set_title(r'$\phi$ heatmap (colour: $\phi$, brightness: $|L_z|$)')
 
     if label_axes:
-        for ax in axes:
-            ax.set_xticks(np.linspace(-Lx, Lx, 5))
-            ax.set_yticks(np.linspace(-Ly, Ly, 5))
-            ax.set_xlabel(r'$x$ [m]')
-            ax.set_ylabel(r'$y$ [m]')
+        axes.set_xlabel(r'$x$ [m]')
+        axes.set_ylabel(r'$y$ [m]')
     else:
-        for ax in axes:
-            ax.set_xticks([])
-            ax.set_yticks([])
+        axes.set_xticks([])
+        axes.set_yticks([])
 
     # --- Overlay positions (phi panel) ---
     if show_positions and pos is not None:
@@ -404,7 +392,7 @@ def create_live_plotter(Lx, Ly,
 
     im_neel = ax_neel.imshow(dummy_rgb, extent=[-Lx, Lx, -Ly, Ly],
                              origin='lower')
-    ax_neel.set_title(r"N\'{e}el direction ($\phi$ cmap, $|L_z|$ brightness)")
+    ax_neel.set_title(r"Néel direction ($\phi$ cmap, $|L_z|$ brightness)")
     ax_neel.set_aspect('equal', adjustable='box')
 
     loss_line, = ax_loss.plot([], [])
@@ -430,36 +418,26 @@ def create_live_plotter(Lx, Ly,
     # --- Add color wheel inset to probe plot ---
     axins = inset_axes(
         ax_probe,
-        width="25%",
-        height="25%",
+        width="18%",
+        height="18%",
         loc='upper right',
-        borderpad=1
+        borderpad=2
     )
     
     wheel_rgba = make_color_wheel_rgba(gamma=1.0)
     axins.imshow(wheel_rgba, origin='lower', extent=[-1, 1, -1, 1])
-    axins.set_xticks([])
-    axins.set_yticks([])
-    axins.set_facecolor((0, 0, 0, 0))
-    
-    for spine in axins.spines.values():
-        spine.set_visible(False)
+    _decorate_probe_color_wheel_axes(axins)
 
     ax_neelins = inset_axes(
         ax_neel,
-        width="25%",
-        height="25%",
+        width="18%",
+        height="18%",
         loc='upper right',
-        borderpad=1
+        borderpad=2
     )
 
     ax_neelins.imshow(make_neel_color_wheel_rgba(phi_cmap=phi_cmap, gamma=1.0), origin='lower', extent=[-1, 1, -1, 1])
-    ax_neelins.set_xticks([])
-    ax_neelins.set_yticks([])
-    ax_neelins.set_facecolor((0, 0, 0, 0))
-
-    for spine in ax_neelins.spines.values():
-        spine.set_visible(False)
+    _decorate_probe_color_wheel_axes(ax_neelins)
 
     def update(probe_amplitude, theta, phi, loss, scan, scan_ref=None, save_filename=None):
         '''Update the plots with new data. Call this function after each iteration of the ptychography reconstruction.'''
