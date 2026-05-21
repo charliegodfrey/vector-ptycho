@@ -34,11 +34,24 @@ def complex_to_rgb(Z, gamma=0.7):
 
 
 def neel_direction_to_rgb(theta, phi, gamma=0.7, phi_cmap='twilight'):
-    """Convert a Néel-vector direction to RGB.
+    """Map a Néel-vector direction to RGB.
 
-    Phi is mapped through the supplied colormap with pi-periodic wrapping,
-    and brightness fades with |Lz| = |cos(theta)| so the in-plane direction
-    is dimmed as the out-of-plane component grows.
+    Parameters
+    ----------
+    theta : array_like
+        Polar angle of the magnetization direction.
+    phi : array_like
+        In-plane angle of the magnetization direction.
+    gamma : float, optional
+        Gamma correction applied to the brightness channel.
+    phi_cmap : str, optional
+        Matplotlib colormap used to encode phi with pi-periodic wrapping.
+
+    Returns
+    -------
+    numpy.ndarray
+        RGB image where hue comes from phi and brightness fades with
+        |Lz| = |cos(theta)|.
     """
     lz = np.abs(np.cos(theta))
     brightness = np.clip(1.0 - lz, 0.0, 1.0)
@@ -50,6 +63,11 @@ def neel_direction_to_rgb(theta, phi, gamma=0.7, phi_cmap='twilight'):
 
 
 def make_color_wheel_rgba(gamma=1.0, Nw=200):
+    """Build a complex-probe color wheel with transparent background.
+
+    The wheel is used as an inset legend for the complex-valued probe plots.
+    Phase is encoded as hue and magnitude as brightness.
+    """
     u = np.linspace(-1, 1, Nw)
     v = np.linspace(-1, 1, Nw)
     U, V = np.meshgrid(u, v)
@@ -68,6 +86,12 @@ def make_color_wheel_rgba(gamma=1.0, Nw=200):
 
 
 def make_neel_color_wheel_rgba(phi_cmap='twilight', gamma=1.0, Nw=200):
+    """Build a Néel-direction color wheel with pi-periodic phi wrapping.
+
+    The wheel matches the Néel visualization: phi is mapped through the
+    supplied colormap, the center is black, and the outer ring is fully
+    saturated.
+    """
     u = np.linspace(-1, 1, Nw)
     v = np.linspace(-1, 1, Nw)
     U, V = np.meshgrid(u, v)
