@@ -37,7 +37,9 @@ def _as_device_tensor(value, *, device=device, dtype=None):
 
 
 def _shift_complex_image(image, shifts):
-    """Shift a complex 2D image by sub-pixel amounts with differentiable sampling."""
+    """Shift a complex 2D image by sub-pixel amounts with differentiable sampling.
+    Note this function works in units of pixels.
+    """
     if image.ndim != 2:
         raise ValueError("image must have shape (H, W)")
 

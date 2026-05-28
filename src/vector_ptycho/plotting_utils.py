@@ -325,17 +325,17 @@ def plot_theta_phi_maps(theta, phi, Lx, Ly,
 
     # --- Overlay positions (phi panel) ---
     if show_positions and pos is not None:
-        axes[1].scatter(pos[:, 1], pos[:, 0],
+        axes.scatter(pos[:, 1], pos[:, 0],
                         c='cyan', marker='x', s=12,
                         label='Scan positions')
 
         if label_positions:
             for k, (dy_pos, dx_pos) in enumerate(pos):
-                axes[1].text(dx_pos - dx, dy_pos - dy, str(k),
+                axes.text(dx_pos - dx, dy_pos - dy, str(k),
                              color='white', fontsize=8,
                              ha='right', va='top')
 
-        axes[1].legend(loc='upper right')
+        axes.legend(loc='upper left')
 
     plt.tight_layout()
     plt.show()
