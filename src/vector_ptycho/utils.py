@@ -412,5 +412,34 @@ def estimate_probe(H, W, Lx, Ly, I_meas, device):
     return P
 
 
+def circle_overlap_percent(R, d):
+    """
+    Calculate the percentage overlap area between two circles of equal radius R
+    separated by centre-to-centre distance d.
 
+    Uses the standard lens-area formula:
+        A = 2R² · arccos(d / 2R) - (d/2) · sqrt(4R² - d²)
 
+    Parameters
+    ----------
+    R : float  — radius of both circles
+    d : float  — centre-to-centre separation
+
+    Returns
+    -------
+    overlap_pct : float — overlap area as a percentage of a single circle's area
+    """
+    if d < 0:
+        raise ValueError("Separation d must be non-negative.")
+
+    if d >= 2 * R:
+        return 0.0        # circles don't touch
+
+    if d == 0:
+        return 100.0      # perfectly coincident
+
+    # Intersection area (lens formula, simplified for r == R)
+    A = 2 * R**2 * np.arccos(d / (2 * R)) - (d / 2) * np.sqrt(4 * R**2 - d**2)
+
+    single_area = np.pi * R**2
+    return 100.0 * A / single_area
