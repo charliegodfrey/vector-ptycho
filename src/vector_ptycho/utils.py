@@ -251,7 +251,7 @@ class NeelObject:
         sin_p = torch.sin(phi)
 
         Jxx = (2/3)-self.F_scat[0]+self.F_scat[2]*(sin_t*cos_p)**2
-        Jxy = self.F_scat[2]*sin_t**2*sin_p #torch.zeros_like(Jxx)#
+        Jxy = self.F_scat[2]*sin_t**2*cos_p*sin_p #torch.zeros_like(Jxx)#
         Jyx = Jxy
         Jyy = (2/3)-self.F_scat[0]+self.F_scat[2]*(sin_t*sin_p)**2
 
