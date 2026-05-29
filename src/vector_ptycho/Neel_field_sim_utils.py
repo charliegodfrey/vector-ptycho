@@ -9,6 +9,154 @@ import os
 from vector_ptycho.utils import *
 from vector_ptycho.plotting_utils import *
 
+
+def make_resolution_test_theta_phi(
+    Nx=300,
+    Ny=300,
+    Lx=10.0,
+    Ly=None,
+    n_phi=6,             # number of rows (phi values)
+    n_theta=6,           # number of columns (theta values)
+    theta_range=(0.0, np.pi),        # min and max theta
+    phi_range=(0.0, 2 * np.pi),      # min and max phi
+    margin=0.5,          # physical units — clear border around whole field
+    gap=0.15,            # physical units — spacing between squares
+    background_theta=np.pi / 2,
+    background_phi=0.0,
+    plot=True,
+    save_path='resolution_test_grid.svg',
+    export_path=None,
+    return_torch=True,
+    out_device=None,
+    cm='twilight',
+):
+    """
+    Build a resolution-test magnetic texture: a grid of uniform squares where
+    each row has a fixed phi value and each column has a fixed theta value.
+
+    theta increases left → right across columns.
+    phi increases bottom → top across rows (to match imshow 'lower' origin).
+
+    Returns:
+        theta, phi  shape (Ny, Nx)  — ready for NeelObject.build_jones()
+        Mx, My, Mz  shape (Ny, Nx)  — magnetisation components
+    """
+    if out_device is None:
+        out_device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    if Ly is None:
+        Ly = Lx
+
+    # ------------------------------------------------------------------
+    # Compute square size from available space
+    # ------------------------------------------------------------------
+    usable_x = Lx - 2 * margin
+    usable_y = Ly - 2 * margin
+
+    sq_w = (usable_x - (n_theta - 1) * gap) / n_theta
+    sq_h = (usable_y - (n_phi   - 1) * gap) / n_phi
+
+    # Use the smaller dimension so squares stay square
+    sq = min(sq_w, sq_h)
+
+    # Re-centre the grid within the usable area
+    grid_w = n_theta * sq + (n_theta - 1) * gap
+    grid_h = n_phi   * sq + (n_phi   - 1) * gap
+
+    # ------------------------------------------------------------------
+    # Theta / phi values for each column / row
+    # ------------------------------------------------------------------
+    theta_values = np.linspace(theta_range[0], theta_range[1], n_theta, dtype=np.float32)
+    phi_values   = np.linspace(phi_range[0],   phi_range[1],   n_phi,   dtype=np.float32)
+
+    # ------------------------------------------------------------------
+    # Build the rectangles list
+    # ------------------------------------------------------------------
+    rectangles = []
+    for col, th in enumerate(theta_values):
+        for row, ph in enumerate(phi_values):
+            # x: left to right with column index
+            cx = -grid_w / 2 + col * (sq + gap) + sq / 2
+            # y: bottom to top with row index (matches imshow lower origin)
+            cy = -grid_h / 2 + row * (sq + gap) + sq / 2
+            rectangles.append({
+                'center':     (cx, cy),
+                'width':      sq,
+                'height':     sq,
+                'theta_neel': th,
+                'phi_neel':   ph,
+            })
+
+    # ------------------------------------------------------------------
+    # Build grids
+    # ------------------------------------------------------------------
+    x = np.linspace(-Lx / 2, Lx / 2, Nx, dtype=np.float32)
+    y = np.linspace(-Ly / 2, Ly / 2, Ny, dtype=np.float32)
+    X, Y = np.meshgrid(x, y, indexing='xy')
+
+    theta_np = np.full((Ny, Nx), background_theta, dtype=np.float32)
+    phi_np   = np.full((Ny, Nx), background_phi,   dtype=np.float32)
+
+    x_inner = Lx / 2 - margin
+    y_inner = Ly / 2 - margin
+    inner_mask = (np.abs(X) <= x_inner) & (np.abs(Y) <= y_inner)
+
+    for rect in rectangles:
+        cx, cy = rect['center']
+        hw = rect['width']  / 2.0
+        hh = rect['height'] / 2.0
+        rect_mask = (
+            inner_mask
+            & (np.abs(X - cx) <= hw)
+            & (np.abs(Y - cy) <= hh)
+        )
+        theta_np[rect_mask] = rect['theta_neel']
+        phi_np[rect_mask]   = rect['phi_neel']
+
+    # ------------------------------------------------------------------
+    # Derive Mx, My, Mz
+    # ------------------------------------------------------------------
+    Mx = np.sin(theta_np) * np.cos(phi_np)
+    My = np.sin(theta_np) * np.sin(phi_np)
+    Mz = np.cos(theta_np)
+
+    # ------------------------------------------------------------------
+    # Optional export
+    # ------------------------------------------------------------------
+    if export_path is not None:
+        np.savez(export_path, theta=theta_np, phi=phi_np)
+
+    # ------------------------------------------------------------------
+    # Plot
+    # ------------------------------------------------------------------
+    if plot:
+        fig, axes = plot_theta_phi_maps(
+            theta_np, phi_np, Lx, Ly,
+            positions=None,
+            theta_cmap='magma',
+            phi_cmap=cm,
+            dx=0.0, dy=0.0,
+            show_positions=False,
+            label_positions=False,
+            label_axes=False,
+        )
+
+        plt.tight_layout()
+        if save_path is not None:
+            plt.savefig(save_path, dpi=500, bbox_inches='tight')
+        plt.show()
+
+    # ------------------------------------------------------------------
+    # Return
+    # ------------------------------------------------------------------
+    if return_torch:
+        theta = torch.tensor(theta_np, dtype=torch.float32, device=out_device)
+        phi   = torch.tensor(phi_np,   dtype=torch.float32, device=out_device)
+        return theta, phi, Mx, My, Mz
+
+    return theta_np, phi_np, Mx, My, Mz
+
+
 def generate_circle(radius=0.5e-6, Nx=300,Ny=300, Lx=5e-6, Ly=5e-6, plot=True, cm='twilight', device=None):
     # --- Grid ---
 
