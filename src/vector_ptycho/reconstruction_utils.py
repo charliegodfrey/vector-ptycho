@@ -37,7 +37,8 @@ class PtychoReconstructionTrainer:
         object_randomisation=False,
         probe_randomisation=False,
         requires_grad_flags=None,
-        alternate_optimization=False
+        alternate_optimization=False,
+        max_grad_norm=None
     ):
         """
         Initialize the ptychographic reconstruction trainer with full support for 
@@ -87,6 +88,8 @@ class PtychoReconstructionTrainer:
             Whether to apply randomisation to probe.
         alternate_optimization : bool
             Whether to use alternate optimization strategy.
+        max_grad_norm : float or None
+            If set, clip gradients to this maximum norm before optimizer updates.
         """
         self.scan = scan
         self.scan_ref = scan_ref
@@ -109,17 +112,23 @@ class PtychoReconstructionTrainer:
         self.phi_cmap = phi_cmap
         self.theta_cmap = theta_cmap
         self.alternate_optimization = alternate_optimization
+        self.max_grad_norm = max_grad_norm
 
         self.device = device or I_meas.device
 
-        self.loss_prefactors = loss_prefactors or {
-            'sqrt_amp_pf': 0.0, 
+        defaults = {
+            'sqrt_amp_pf': 0.0,
             'gradient_pf': 0.0,
-            'anisotropy_pf': 0.0, 
+            'anisotropy_pf': 0.0,
             'probe_localisation_pf': 0.0,
             'STXM_pf': 1.0,
-            'probe_size_pf': 0.0
+            'probe_size_pf': 0.0,
+            'log_loss_pf': 0.0,
         }
+        # Merge user-provided prefactors with defaults so missing keys default to 0
+        self.loss_prefactors = defaults
+        if loss_prefactors:
+            self.loss_prefactors.update(loss_prefactors)
         self.optimizer_params = optimizer_params or {
             'l_lr': 1e-1, 
             'F_scat_lr': 1e-5,
@@ -189,6 +198,7 @@ class PtychoReconstructionTrainer:
             "scheduler_state_dict": self.scheduler.state_dict(),
             "loss_history": self.loss_history,
             "optimizer_params": self.optimizer_params,
+            "max_grad_norm": self.max_grad_norm,
             "loss_prefactors": self.loss_prefactors,
             "rng_state": torch.get_rng_state(),
             "cuda_rng_state": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None            
@@ -283,36 +293,56 @@ class PtychoReconstructionTrainer:
         I_pred_safe = torch.clamp(I_pred, min=0.0)
 
         # Amplitude-based ptychographic loss
-        if self.loss_prefactors['sqrt_amp_pf'] > 0:
-            loss = self.loss_prefactors['sqrt_amp_pf'] * torch.mean(
+        if self.loss_prefactors.get('sqrt_amp_pf', 0.0) > 0:
+            loss = loss + self.loss_prefactors.get('sqrt_amp_pf', 0.0) * torch.mean(
                 (torch.sqrt(I_pred_safe + self.eps) - torch.sqrt(self.I_meas + self.eps)) ** 2
             )
 
-        if self.loss_prefactors['STXM_pf'] > 0:
+        if self.loss_prefactors.get('log_loss_pf', 0.0) > 0:
+            loss = loss + self.loss_prefactors.get('log_loss_pf', 0.0) * torch.mean(
+                (I_pred_safe - self.I_meas*torch.log(self.I_pred_safe + self.eps))
+            )
+
+        if self.loss_prefactors.get('log_STXM_loss_pf', 0.0) > 0:
             pred_sum = torch.sum(I_pred_safe, dim=(-2, -1))
             meas_sum = torch.sum(self.I_meas, dim=(-2, -1))
+            loss = loss + self.loss_prefactors.get('log_STXM_loss_pf', 0.0) * torch.mean(
+                (pred_sum - meas_sum*torch.log(pred_sum + self.eps))
+            )
+
+        if self.loss_prefactors.get('STXM_pf', 0.0) > 0:
+            pred_sum = torch.sum(I_pred_safe, dim=(-2, -1))
+            #meas_sum = torch.sum(self.I_meas, dim=(-2, -1)) # The sqrt of this is precomputed and stored in self.sqrt_meas_sum to save computation during training.
             
-            loss = loss + self.loss_prefactors['STXM_pf'] * torch.sum(
+            loss = loss + self.loss_prefactors.get('STXM_pf', 0.0) * torch.sum(
                 (torch.sqrt(pred_sum + self.eps) - self.sqrt_meas_sum) ** 2
             )
-        if np.abs(self.loss_prefactors['anisotropy_pf']) > 0.0:
-            loss = loss + self.loss_prefactors['anisotropy_pf'] * torch.mean(self.l[2]**2) # Positive prefactor will favour IP alignment.
+        if np.abs(self.loss_prefactors.get('anisotropy_pf', 0.0)) > 0.0:
+            loss = loss + self.loss_prefactors.get('anisotropy_pf', 0.0) * torch.mean(self.l[2]**2) # Positive prefactor will favour IP alignment.
         
-        if np.abs(self.loss_prefactors['gradient_pf']) > 0.0:
+        if np.abs(self.loss_prefactors.get('gradient_pf', 0.0)) > 0.0:
             dy, dx = torch.gradient(self.l, dim=(-2, -1))
             gradient_loss = torch.sum(torch.sqrt(dx**2 + dy**2 + self.eps))
-            loss = loss + self.loss_prefactors['gradient_pf'] * gradient_loss
+            loss = loss + self.loss_prefactors.get('gradient_pf', 0.0) * gradient_loss
 
-        if np.abs(self.loss_prefactors['probe_size_pf']) > 0.0:
+        if np.abs(self.loss_prefactors.get('probe_size_pf', 0.0)) > 0.0:
             probe_size_loss = torch.sum(torch.abs(self.probe_amplitude) * (self.R>self.R_probe))
-            loss = loss + self.loss_prefactors['probe_size_pf'] * probe_size_loss
+            loss = loss + self.loss_prefactors.get('probe_size_pf', 0.0) * probe_size_loss
 
-        if np.abs(self.loss_prefactors['probe_localisation_pf']) > 0.0:
+        if np.abs(self.loss_prefactors.get('probe_localisation_pf', 0.0)) > 0.0:
             probe_localisation_loss = torch.sum(torch.abs(self.probe_amplitude) * (self.R > self.R_probe)*self.R**2) # This loss term penalises amplitude at large R, which helps to keep the probe localised and prevent it from drifting during optimization.
-            loss = loss + self.loss_prefactors['probe_localisation_pf'] * probe_localisation_loss
+            loss = loss + self.loss_prefactors.get('probe_localisation_pf', 0.0) * probe_localisation_loss
         return loss
 
-    def train(self, num_iterations, checkpoint_out_path=None, save_every=50, plot_filename=None):
+    def train(
+        self,
+        num_iterations,
+        checkpoint_out_path=None,
+        save_every=50,
+        plot_filename=None,
+        diff_probe_idx=0,
+        diff_scan_idx=0,
+    ):
         """
         Full training loop with complex scheduling and optional randomization.
         
@@ -326,6 +356,10 @@ class PtychoReconstructionTrainer:
             Save checkpoint every N iterations.
         plot_filename : str or None
             Filename for saving plots during training.
+        diff_probe_idx : int
+            Probe index to display in live diffraction panels.
+        diff_scan_idx : int
+            Scan index to display in live diffraction panels.
         """
 
         plot_update = create_live_plotter(self.Lx, self.Ly, phi_cmap=self.phi_cmap, theta_cmap=self.theta_cmap)
@@ -377,8 +411,13 @@ class PtychoReconstructionTrainer:
 
             # Backward pass
             loss.backward()
+            if self.max_grad_norm is not None:
+                torch.nn.utils.clip_grad_norm_(
+                    [self.l, self.F_scat, self.probe_amplitude, self.shifts],
+                    self.max_grad_norm,
+                )
             self.optimizer.step()
-            self.scheduler.step(loss)
+            #self.scheduler.step(loss)
 
             self.loss_history.append(loss.item())
 
@@ -418,7 +457,19 @@ class PtychoReconstructionTrainer:
                     f"Active param: {active_param_names[(alternate_optimization_counter - 1) % num_grad_params] if self.alternate_optimization else 'All'}"
                 )
                 
-                plot_update(self.probe_amplitude, theta, phi, loss, self.scan, self.scan_ref, save_filename=plot_filename)
+                plot_update(
+                    self.probe_amplitude,
+                    theta,
+                    phi,
+                    loss,
+                    self.scan,
+                    self.scan_ref,
+                    I_sim=I_pred,
+                    I_exp=self.I_meas,
+                    diff_probe_idx=diff_probe_idx,
+                    diff_scan_idx=diff_scan_idx,
+                    save_filename=plot_filename,
+                )
         if checkpoint_out_path:
             self.save_checkpoint(checkpoint_out_path, iteration)
 

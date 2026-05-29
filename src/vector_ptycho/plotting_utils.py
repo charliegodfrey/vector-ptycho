@@ -362,7 +362,9 @@ def create_live_plotter(Lx, Ly,
                        label_axes=True):
     
     '''
-    Generates a plotting function that can be called with new probe amplitude, theta, phi, and loss values to update the visualisation in real-time.
+    Generates a plotting function that can be called with new probe amplitude,
+    theta, phi, loss, and optional diffraction data to update the
+    visualisation in real-time.
 
     Use by creating an empty plot:
     plot_update = create_live_plotter(Lx, Ly)
@@ -374,13 +376,15 @@ def create_live_plotter(Lx, Ly,
 
     '''
 
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    fig, axes = plt.subplots(3, 2, figsize=(14, 14))
     axes = axes.ravel()
 
     ax_probe = axes[0]  # Complex probe as RGB
     ax_neel  = axes[1]
     ax_loss  = axes[2]
     ax_positions = axes[3]
+    ax_diff_sim = axes[4]
+    ax_diff_exp = axes[5]
 
     # --- Initial dummy data for probe RGB ---
     dummy_rgb = np.zeros((10, 10, 3))
@@ -394,6 +398,17 @@ def create_live_plotter(Lx, Ly,
                              origin='lower')
     ax_neel.set_title(r"Néel direction ($\phi$ cmap, $|L_z|$ brightness)")
     ax_neel.set_aspect('equal', adjustable='box')
+
+    dummy_diff = np.zeros((10, 10))
+    im_diff_sim = ax_diff_sim.imshow(dummy_diff, origin='lower', cmap='inferno')
+    ax_diff_sim.set_title('Simulated diffraction (log10)')
+    ax_diff_sim.set_xlabel('Detector x [px]')
+    ax_diff_sim.set_ylabel('Detector y [px]')
+
+    im_diff_exp = ax_diff_exp.imshow(dummy_diff, origin='lower', cmap='inferno')
+    ax_diff_exp.set_title('Experimental diffraction (log10)')
+    ax_diff_exp.set_xlabel('Detector x [px]')
+    ax_diff_exp.set_ylabel('Detector y [px]')
 
     loss_line, = ax_loss.plot([], [])
     ax_loss.set_title("Loss vs iteration")
@@ -439,7 +454,36 @@ def create_live_plotter(Lx, Ly,
     ax_neelins.imshow(make_neel_color_wheel_rgba(phi_cmap=phi_cmap, gamma=1.0), origin='lower', extent=[-1, 1, -1, 1])
     _decorate_probe_color_wheel_axes(ax_neelins)
 
-    def update(probe_amplitude, theta, phi, loss, scan, scan_ref=None, save_filename=None):
+    def _extract_diffraction_frame(intensity, probe_idx=0, scan_idx=0):
+        """Extract a single detector frame from 2D/3D/4D intensity arrays."""
+        if intensity is None:
+            return None
+
+        arr = _to_numpy(intensity)
+        if arr.ndim == 4:
+            p = int(np.clip(probe_idx, 0, arr.shape[0] - 1))
+            s = int(np.clip(scan_idx, 0, arr.shape[1] - 1))
+            return arr[p, s], p, s
+        if arr.ndim == 3:
+            s = int(np.clip(scan_idx, 0, arr.shape[0] - 1))
+            return arr[s], None, s
+        if arr.ndim == 2:
+            return arr, None, None
+        return None
+
+    def update(
+        probe_amplitude,
+        theta,
+        phi,
+        loss,
+        scan,
+        scan_ref=None,
+        I_sim=None,
+        I_exp=None,
+        diff_probe_idx=0,
+        diff_scan_idx=0,
+        save_filename=None,
+    ):
         '''Update the plots with new data. Call this function after each iteration of the ptychography reconstruction.'''
 
         probe_amplitude_np = _to_numpy(probe_amplitude)
@@ -480,6 +524,45 @@ def create_live_plotter(Lx, Ly,
         ax_positions.set_title('Probe positions with shifts')
         ax_positions.set_aspect('equal', adjustable='box')
         ax_positions.legend(loc='upper right')
+
+        # --- Diffraction patterns (shared colour scale between sim/exp) ---
+        sim_frame_info = _extract_diffraction_frame(I_sim, diff_probe_idx, diff_scan_idx)
+        sim_plot = None
+        if sim_frame_info is not None:
+            sim_frame, p_idx, s_idx = sim_frame_info
+            sim_plot = np.log10(np.clip(sim_frame, 0.0, None) + 1e-8)
+            im_diff_sim.set_data(sim_plot)
+            if p_idx is None and s_idx is None:
+                ax_diff_sim.set_title('Simulated diffraction (log10)')
+            elif p_idx is None:
+                ax_diff_sim.set_title(f'Simulated diffraction (scan {s_idx}, log10)')
+            else:
+                ax_diff_sim.set_title(f'Simulated diffraction (probe {p_idx}, scan {s_idx}, log10)')
+
+        exp_frame_info = _extract_diffraction_frame(I_exp, diff_probe_idx, diff_scan_idx)
+        exp_plot = None
+        if exp_frame_info is not None:
+            exp_frame, p_idx, s_idx = exp_frame_info
+            exp_plot = np.log10(np.clip(exp_frame, 0.0, None) + 1e-8)
+            im_diff_exp.set_data(exp_plot)
+            if p_idx is None and s_idx is None:
+                ax_diff_exp.set_title('Experimental diffraction (log10)')
+            elif p_idx is None:
+                ax_diff_exp.set_title(f'Experimental diffraction (scan {s_idx}, log10)')
+            else:
+                ax_diff_exp.set_title(f'Experimental diffraction (probe {p_idx}, scan {s_idx}, log10)')
+
+        available_plots = [arr for arr in (sim_plot, exp_plot) if arr is not None]
+        if available_plots:
+            global_vmin = float(min(np.min(arr) for arr in available_plots))
+            global_vmax = float(max(np.max(arr) for arr in available_plots))
+            if global_vmax <= global_vmin:
+                global_vmax = global_vmin + 1e-12
+
+            if sim_plot is not None:
+                im_diff_sim.set_clim(vmin=global_vmin, vmax=global_vmax)
+            if exp_plot is not None:
+                im_diff_exp.set_clim(vmin=global_vmin, vmax=global_vmax)
 
         if save_filename is not None:
             fig.savefig(save_filename, bbox_inches='tight')
