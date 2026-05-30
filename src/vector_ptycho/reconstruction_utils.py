@@ -484,3 +484,5 @@ class PtychoReconstructionTrainer:
             "optimizer_params": self.optimizer_params,
             "loss_prefactors": self.loss_prefactors,
         }
+
+

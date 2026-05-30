@@ -22,6 +22,30 @@ def normalise_neel(l):
     Lz = l[2] / mag
     return Lx, Ly, Lz
 
+
+def neel_field_rmse(recon_l, true_l, eps=1e-8):
+    """Compute the angular RMSE between two Néel vector fields.
+
+    Both inputs must be tensor fields with leading dimension 3, typically
+    shaped as (3, H, W). The fields are normalized before the dot product is
+    formed, the absolute dot product is clamped to [0, 1], and the result is
+    returned as a scalar Torch tensor.
+    """
+    if recon_l.shape != true_l.shape:
+        raise ValueError("recon_l and true_l must have the same shape")
+    if recon_l.ndim < 1 or recon_l.shape[0] != 3:
+        raise ValueError("vector fields must have shape (3, ...) with a leading Cartesian dimension")
+
+    recon_mag = torch.linalg.norm(recon_l, dim=0).clamp_min(eps)
+    true_mag = torch.linalg.norm(true_l, dim=0).clamp_min(eps)
+
+    recon_unit = recon_l / recon_mag
+    true_unit = true_l / true_mag
+
+    dot = torch.sum(recon_unit * true_unit, dim=0).abs().clamp(0.0, 1.0)
+    angular_error = torch.acos(dot.clamp(-1.0 + eps, 1.0 - eps))
+    return torch.sqrt(torch.mean(angular_error ** 2))
+
 def cartesian_to_spherical(l):
     # Convert Cartesian to spherical coordinates (theta, phi)
     lx_norm, ly_norm, lz_norm = normalise_neel(l)
