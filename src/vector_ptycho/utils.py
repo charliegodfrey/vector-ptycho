@@ -24,27 +24,35 @@ def normalise_neel(l):
 
 
 def neel_field_rmse(recon_l, true_l, eps=1e-8):
-    """Compute the angular RMSE between two Néel vector fields.
+    """Compute a similarity score between two Néel vector fields.
 
-    Both inputs must be tensor fields with leading dimension 3, typically
-    shaped as (3, H, W). The fields are normalized before the dot product is
-    formed, the absolute dot product is clamped to [0, 1], and the result is
-    returned as a scalar Torch tensor.
+    Returns a scalar in [0, 1]:
+      - 1.0  : perfect alignment everywhere
+      - ~0.0 : fields are uncorrelated (random relative orientations)
+      - -1.0 : perfectly anti-aligned (only possible without head-tail symmetry)
+
+    Both inputs must have shape (3, ...) with a leading Cartesian dimension.
     """
+    recon_l = recon_l.to(device=device, dtype=torch.float32)
+    true_l  = true_l.to(device=device, dtype=torch.float32)
+
     if recon_l.shape != true_l.shape:
         raise ValueError("recon_l and true_l must have the same shape")
     if recon_l.ndim < 1 or recon_l.shape[0] != 3:
         raise ValueError("vector fields must have shape (3, ...) with a leading Cartesian dimension")
 
-    recon_mag = torch.linalg.norm(recon_l, dim=0).clamp_min(eps)
-    true_mag = torch.linalg.norm(true_l, dim=0).clamp_min(eps)
+    recon_unit = recon_l / torch.linalg.norm(recon_l, dim=0).clamp_min(eps)
+    true_unit  = true_l  / torch.linalg.norm(true_l,  dim=0).clamp_min(eps)
 
-    recon_unit = recon_l / recon_mag
-    true_unit = true_l / true_mag
+    # Per-pixel cosine similarity, shape (H, W)
+    dot = torch.sum(recon_unit * true_unit, dim=0)
 
-    dot = torch.sum(recon_unit * true_unit, dim=0).abs().clamp(0.0, 1.0)
-    angular_error = torch.acos(dot.clamp(-1.0 + eps, 1.0 - eps))
-    return torch.sqrt(torch.mean(angular_error ** 2))
+    # If l and -l are physically equivalent (head-tail symmetry), fold with abs
+    # so that anti-aligned vectors still score 1. Remove if polarity matters.
+    dot = dot.abs()
+
+    # Mean cosine similarity: 1 = perfect, ~0 = random
+    return dot.mean()
 
 def cartesian_to_spherical(l):
     # Convert Cartesian to spherical coordinates (theta, phi)
