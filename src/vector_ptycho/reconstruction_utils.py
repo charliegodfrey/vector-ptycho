@@ -42,7 +42,6 @@ class PtychoReconstructionTrainer:
         normalise_probe_every_iter=False,
         start_iter=0,
         true_l=None,
-        metrics_out_path=None,
     ):
         """
         Initialize the ptychographic reconstruction trainer with full support for 
@@ -122,10 +121,10 @@ class PtychoReconstructionTrainer:
         self.max_grad_norm = max_grad_norm
         self.normalise_probe_every_iter = normalise_probe_every_iter
         self.start_iter = int(start_iter)
-        self.true_l = true_l.to(self.device) if true_l is not None else None
-        self.metrics_out_path = metrics_out_path
-
         self.device = device or I_meas.device
+        self.true_l = true_l.to(self.device) if true_l is not None else None
+
+        
 
         defaults = {
             'sqrt_amp_pf': 0.0,
@@ -166,17 +165,7 @@ class PtychoReconstructionTrainer:
 
         self.loss_history = []
         self.cosine_similarity_history = []
-
-    def _write_metrics_header(self, metrics_out_path):
-        if not metrics_out_path:
-            return
-        metrics_dir = os.path.dirname(metrics_out_path)
-        if metrics_dir:
-            os.makedirs(metrics_dir, exist_ok=True)
-        needs_header = not os.path.exists(metrics_out_path) or os.path.getsize(metrics_out_path) == 0
-        if needs_header:
-            with open(metrics_out_path, "w", encoding="utf-8") as metrics_file:
-                metrics_file.write("iteration\tloss\tcosine_similarity\n")
+        self.iteration_numbers = []
 
     def initialize_learnable_parameters(self):
         """Initialize learnable parameters."""
@@ -221,6 +210,7 @@ class PtychoReconstructionTrainer:
             "scheduler_state_dict": self.scheduler.state_dict(),
             "loss_history": self.loss_history,
             "cosine_similarity_history": self.cosine_similarity_history,
+            "iteration_numbers": self.iteration_numbers,
             "optimizer_params": self.optimizer_params,
             "max_grad_norm": self.max_grad_norm,
             "loss_prefactors": self.loss_prefactors,
@@ -248,6 +238,7 @@ class PtychoReconstructionTrainer:
 
         self.loss_history = checkpoint.get("loss_history", [])
         self.cosine_similarity_history = checkpoint.get("cosine_similarity_history", [])
+        self.iteration_numbers = checkpoint.get("iteration_numbers", [])
         self.start_iter = checkpoint.get("start_iter", checkpoint["iteration"] + 1)
 
     def _build_probe_jones_vector(self, angle):
@@ -388,10 +379,6 @@ class PtychoReconstructionTrainer:
         """
 
         plot_update = create_live_plotter(self.Lx, self.Ly, phi_cmap=self.phi_cmap, theta_cmap=self.theta_cmap)
-        metrics_out_path = self.metrics_out_path
-        if metrics_out_path is None and checkpoint_out_path:
-            metrics_out_path = os.path.splitext(checkpoint_out_path)[0] + "_metrics.txt"
-        self._write_metrics_header(metrics_out_path)
 
         alternate_optimization_counter = 0
         active_param_names = [
@@ -459,13 +446,7 @@ class PtychoReconstructionTrainer:
 
             self.loss_history.append(loss_value)
             self.cosine_similarity_history.append(cosine_similarity_value)
-
-            if metrics_out_path:
-                with open(metrics_out_path, "a", encoding="utf-8") as metrics_file:
-                    metrics_file.write(
-                        f"{iteration}\t{loss_value:.10e}\t"
-                        f"{cosine_similarity_value if cosine_similarity_value is not None else 'nan'}\n"
-                    )
+            self.iteration_numbers.append(iteration)
 
             # Print learning rates periodically
             if iteration % 20 == 0:
@@ -530,6 +511,7 @@ class PtychoReconstructionTrainer:
             "shifts": self.shifts.detach(),
             "loss_history": self.loss_history,
             "cosine_similarity_history": self.cosine_similarity_history,
+            "iteration_numbers": self.iteration_numbers,
             "optimizer_params": self.optimizer_params,
             "loss_prefactors": self.loss_prefactors,
             "start_iter": self.start_iter,
