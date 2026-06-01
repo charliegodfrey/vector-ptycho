@@ -135,7 +135,79 @@ __all__ = [
     'plot_theta_phi_maps',
     'plot_scan_positions',
     'create_live_plotter',
+    'load_checkpoint_history',
+    'plot_checkpoint_history',
 ]
+
+
+def load_checkpoint_history(checkpoint_files):
+    """Concatenate iteration and cosine-similarity histories across checkpoints.
+
+    Each checkpoint is treated as a continuation of the previous one, so the
+    returned iteration numbers are shifted to keep the x-axis continuous.
+    """
+    combined_iterations = []
+    combined_cosine_similarity = []
+    iteration_offset = 0
+
+    for checkpoint_file in checkpoint_files:
+        ckpt = torch.load(checkpoint_file, map_location='cpu')
+        iteration_numbers = np.asarray(ckpt['iteration_numbers'])
+        cosine_similarity_history = np.asarray(ckpt['cosine_similarity_history'])
+
+        if iteration_numbers.size == 0:
+            continue
+
+        if combined_iterations:
+            iteration_numbers = iteration_numbers - iteration_numbers[0] + iteration_offset
+
+        combined_iterations.append(iteration_numbers)
+        combined_cosine_similarity.append(cosine_similarity_history)
+        iteration_offset = iteration_numbers[-1] + 1
+
+    if not combined_iterations:
+        return np.array([]), np.array([])
+
+    return np.concatenate(combined_iterations), np.concatenate(combined_cosine_similarity)
+
+
+def plot_checkpoint_history(checkpoint_files, label=None, ax=None, line_styles=None, colour=None, **plot_kwargs):
+    """Plot cosine similarity history for a sequence of checkpoint files.
+
+    Each checkpoint file is drawn as its own line segment so you can give each
+    file a different linestyle while keeping one legend entry per run series.
+    """
+    if ax is None:
+        _, ax = plt.subplots(figsize=(8, 5))
+
+    for i, checkpoint_file in enumerate(checkpoint_files):
+        ckpt = torch.load(checkpoint_file, map_location='cpu')
+        iteration_numbers = np.asarray(ckpt['iteration_numbers'])
+        # Iteration numbers also need to be shifted to create a continuous x-axis across checkpoints
+        if i > 0:
+            iteration_numbers = iteration_numbers - iteration_numbers[0] + (iteration_numbers[-1] + 1) * i
+        cosine_similarity_history = np.asarray(ckpt['cosine_similarity_history'])
+
+        if iteration_numbers.size == 0:
+            continue
+
+        if line_styles:
+            style = line_styles[i % len(line_styles)]
+        else:
+            style = '-'
+
+        ax.plot(
+            iteration_numbers,
+            cosine_similarity_history,
+            label=label if i == 0 else None,
+            linestyle=style,
+            color=colour,
+            **plot_kwargs,
+        )
+    ax.set_xlabel('Iteration')
+    ax.set_ylabel('Cosine Similarity')
+    ax.set_title('Ptycho Reconstruction Progress')
+    return ax
 
 
 def plot_some_diffraction_patterns(I_sim, positions, scan_indices, probe_numbers):

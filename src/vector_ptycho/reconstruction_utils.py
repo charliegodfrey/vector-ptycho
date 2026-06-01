@@ -42,6 +42,9 @@ class PtychoReconstructionTrainer:
         normalise_probe_every_iter=False,
         start_iter=0,
         true_l=None,
+        loss_history=None,
+        cosine_similarity_history=None,
+        iteration_numbers=None,
     ):
         """
         Initialize the ptychographic reconstruction trainer with full support for 
@@ -163,9 +166,9 @@ class PtychoReconstructionTrainer:
 
         self._init_optimizers()
 
-        self.loss_history = []
-        self.cosine_similarity_history = []
-        self.iteration_numbers = []
+        self.loss_history = list(loss_history) if loss_history is not None else []
+        self.cosine_similarity_history = list(cosine_similarity_history) if cosine_similarity_history is not None else []
+        self.iteration_numbers = list(iteration_numbers) if iteration_numbers is not None else []
 
     def initialize_learnable_parameters(self):
         """Initialize learnable parameters."""
@@ -442,7 +445,13 @@ class PtychoReconstructionTrainer:
             cosine_similarity_value = None
             if self.true_l is not None:
                 with torch.no_grad():
-                    cosine_similarity_value = neel_field_rmse(self.l.detach(), self.true_l.detach(), eps=self.eps).item()
+                    # Crop the arrays to exclude the outer border.
+                    crop_size = 120  # Number of pixels to crop from each edge
+                    recon_l = self.l.detach()
+                    true_l = self.true_l.detach()
+                    recon_l_cropped = recon_l[:, crop_size:-crop_size, crop_size:-crop_size]
+                    true_l_cropped = true_l[:, crop_size:-crop_size, crop_size:-crop_size]
+                    cosine_similarity_value = neel_field_rmse(recon_l_cropped, true_l_cropped, eps=self.eps).item()
 
             self.loss_history.append(loss_value)
             self.cosine_similarity_history.append(cosine_similarity_value)
