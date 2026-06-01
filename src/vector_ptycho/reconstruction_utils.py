@@ -38,7 +38,8 @@ class PtychoReconstructionTrainer:
         probe_randomisation=False,
         requires_grad_flags=None,
         alternate_optimization=False,
-        max_grad_norm=None
+        max_grad_norm=None,
+        normalise_probe_every_iter=False
     ):
         """
         Initialize the ptychographic reconstruction trainer with full support for 
@@ -90,6 +91,9 @@ class PtychoReconstructionTrainer:
             Whether to use alternate optimization strategy.
         max_grad_norm : float or None
             If set, clip gradients to this maximum norm before optimizer updates.
+        normalise_probe_every_iter : bool
+            Whether to normalise the probe amplitude to match the target fluence at every iteration.
+            This could fix the problem of ambiguity where the spins can can OOP globally, while the fluence changes.
         """
         self.scan = scan
         self.scan_ref = scan_ref
@@ -113,6 +117,7 @@ class PtychoReconstructionTrainer:
         self.theta_cmap = theta_cmap
         self.alternate_optimization = alternate_optimization
         self.max_grad_norm = max_grad_norm
+        self.normalise_probe_every_iter = normalise_probe_every_iter
 
         self.device = device or I_meas.device
 
@@ -378,7 +383,10 @@ class PtychoReconstructionTrainer:
                 self.probe_amplitude.mul_(scale)
 
         for iteration in range(self.start_iter, self.start_iter + num_iterations):
-
+            if self.normalise_probe_every_iter:
+                with torch.no_grad():
+                    scale = torch.sqrt(self.fluence / (torch.sum(torch.abs(self.probe_amplitude) ** 2) + self.eps))
+                    self.probe_amplitude.mul_(scale)
             if self.alternate_optimization and num_grad_params > 0:
                 active_param_name = active_param_names[alternate_optimization_counter % num_grad_params]
                 for param_name in self.requires_grad_flags:
