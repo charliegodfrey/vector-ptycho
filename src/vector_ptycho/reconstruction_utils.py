@@ -39,7 +39,10 @@ class PtychoReconstructionTrainer:
         requires_grad_flags=None,
         alternate_optimization=False,
         max_grad_norm=None,
-        normalise_probe_every_iter=False
+        normalise_probe_every_iter=False,
+        start_iter=0,
+        true_l=None,
+        metrics_out_path=None,
     ):
         """
         Initialize the ptychographic reconstruction trainer with full support for 
@@ -118,6 +121,9 @@ class PtychoReconstructionTrainer:
         self.alternate_optimization = alternate_optimization
         self.max_grad_norm = max_grad_norm
         self.normalise_probe_every_iter = normalise_probe_every_iter
+        self.start_iter = int(start_iter)
+        self.true_l = true_l.to(self.device) if true_l is not None else None
+        self.metrics_out_path = metrics_out_path
 
         self.device = device or I_meas.device
 
@@ -159,7 +165,18 @@ class PtychoReconstructionTrainer:
         self._init_optimizers()
 
         self.loss_history = []
-        self.start_iter = 0
+        self.cosine_similarity_history = []
+
+    def _write_metrics_header(self, metrics_out_path):
+        if not metrics_out_path:
+            return
+        metrics_dir = os.path.dirname(metrics_out_path)
+        if metrics_dir:
+            os.makedirs(metrics_dir, exist_ok=True)
+        needs_header = not os.path.exists(metrics_out_path) or os.path.getsize(metrics_out_path) == 0
+        if needs_header:
+            with open(metrics_out_path, "w", encoding="utf-8") as metrics_file:
+                metrics_file.write("iteration\tloss\tcosine_similarity\n")
 
     def initialize_learnable_parameters(self):
         """Initialize learnable parameters."""
@@ -193,15 +210,17 @@ class PtychoReconstructionTrainer:
         """Save checkpoint with all model state and optimizer state."""
         checkpoint = {
             "iteration": iteration,
+            "start_iter": iteration + 1,
             "l": self.l.detach().cpu(),
             "probe_amplitude": self.probe_amplitude.detach().cpu(),
             "scan_positions": self.scan.positions.detach().cpu(),  # Assuming scan is serializable. If not, consider saving its parameters instead.
-            "shifts": self.scan.shifts.detach().cpu() if hasattr(self.scan, 'shifts') else None,
+            "scan_shifts": self.scan.shifts.detach().cpu() if hasattr(self.scan, 'shifts') else None,
             "F_scat": self.F_scat.detach().cpu(),
             "shifts": self.shifts.detach().cpu(),
             "optimizer_state_dict": self.optimizer.state_dict(),
             "scheduler_state_dict": self.scheduler.state_dict(),
             "loss_history": self.loss_history,
+            "cosine_similarity_history": self.cosine_similarity_history,
             "optimizer_params": self.optimizer_params,
             "max_grad_norm": self.max_grad_norm,
             "loss_prefactors": self.loss_prefactors,
@@ -218,7 +237,7 @@ class PtychoReconstructionTrainer:
         self.F_scat = torch.nn.Parameter(self.F_scat)
         self.shifts = checkpoint["shifts"].to(self.device)
         self.scan.positions = checkpoint["scan_positions"].to(self.device)
-        if hasattr(self.scan, 'shifts') and checkpoint["scan_shifts"] is not None:
+        if hasattr(self.scan, 'shifts') and checkpoint.get("scan_shifts") is not None:
             self.scan.shifts = checkpoint["scan_shifts"].to(self.device)
         #self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         #self.scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
@@ -228,7 +247,8 @@ class PtychoReconstructionTrainer:
             torch.cuda.set_rng_state_all(checkpoint["cuda_rng_state"])
 
         self.loss_history = checkpoint.get("loss_history", [])
-        self.start_iter = checkpoint["iteration"] + 1
+        self.cosine_similarity_history = checkpoint.get("cosine_similarity_history", [])
+        self.start_iter = checkpoint.get("start_iter", checkpoint["iteration"] + 1)
 
     def _build_probe_jones_vector(self, angle):
         """Build Jones vector for a given polarisation angle.
@@ -368,6 +388,10 @@ class PtychoReconstructionTrainer:
         """
 
         plot_update = create_live_plotter(self.Lx, self.Ly, phi_cmap=self.phi_cmap, theta_cmap=self.theta_cmap)
+        metrics_out_path = self.metrics_out_path
+        if metrics_out_path is None and checkpoint_out_path:
+            metrics_out_path = os.path.splitext(checkpoint_out_path)[0] + "_metrics.txt"
+        self._write_metrics_header(metrics_out_path)
 
         alternate_optimization_counter = 0
         active_param_names = [
@@ -427,7 +451,21 @@ class PtychoReconstructionTrainer:
             self.optimizer.step()
             #self.scheduler.step(loss)
 
-            self.loss_history.append(loss.item())
+            loss_value = loss.item()
+            cosine_similarity_value = None
+            if self.true_l is not None:
+                with torch.no_grad():
+                    cosine_similarity_value = neel_field_rmse(self.l.detach(), self.true_l.detach(), eps=self.eps).item()
+
+            self.loss_history.append(loss_value)
+            self.cosine_similarity_history.append(cosine_similarity_value)
+
+            if metrics_out_path:
+                with open(metrics_out_path, "a", encoding="utf-8") as metrics_file:
+                    metrics_file.write(
+                        f"{iteration}\t{loss_value:.10e}\t"
+                        f"{cosine_similarity_value if cosine_similarity_value is not None else 'nan'}\n"
+                    )
 
             # Print learning rates periodically
             if iteration % 20 == 0:
@@ -458,8 +496,9 @@ class PtychoReconstructionTrainer:
                 
                 # Compute fluence from probe
                 fluence_calc = torch.sum(torch.abs(self.probe_amplitude) ** 2)
+                cosine_text = f"{cosine_similarity_value:.6f}" if cosine_similarity_value is not None else "N/A"
                 print(
-                    f"Iter {iteration:4d} | Loss = {loss.item():.6e} | "
+                    f"Iter {iteration:4d} | Loss = {loss_value:.6e} | CosSim = {cosine_text} | "
                     f"F_scat: {self.F_scat[0].item():.6e}, {self.F_scat[1].item():.6e}, {self.F_scat[2].item():.6e} | "
                     f"Fluence: {fluence_calc.item():.6e} | "
                     f"Active param: {active_param_names[(alternate_optimization_counter - 1) % num_grad_params] if self.alternate_optimization else 'All'}"
@@ -480,6 +519,7 @@ class PtychoReconstructionTrainer:
                 )
         if checkpoint_out_path:
             self.save_checkpoint(checkpoint_out_path, iteration)
+        self.start_iter = iteration + 1
 
     def get_results(self):
         """Get reconstructed parameters and loss history."""
@@ -489,8 +529,10 @@ class PtychoReconstructionTrainer:
             "F_scat": self.F_scat.detach(),
             "shifts": self.shifts.detach(),
             "loss_history": self.loss_history,
+            "cosine_similarity_history": self.cosine_similarity_history,
             "optimizer_params": self.optimizer_params,
             "loss_prefactors": self.loss_prefactors,
+            "start_iter": self.start_iter,
         }
 
 
