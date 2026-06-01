@@ -1,4 +1,4 @@
-# vector-ptycho — Physics-Informed Magnetic Ptychography (PIMP)
+# vector-ptycho — Physics-Informed Vector Ptychography (PIVP)
 
 Standard vector ptychography solves for a general Jones matrix using polarization diversity and polarization analysis after the object.
 
