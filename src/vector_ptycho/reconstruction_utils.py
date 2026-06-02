@@ -22,6 +22,7 @@ class PtychoReconstructionTrainer:
         W,
         initial_l,
         initial_probe_amplitude,
+        probe_scaler,
         F_scat,
         shifts,
         device=None,
@@ -64,6 +65,8 @@ class PtychoReconstructionTrainer:
             Initial guess for the neel vector in Cartesian coordinates, shape (3, H, W).
         initial_probe_amplitude : torch.Tensor
             Initial guess for the probe amplitude, shape (H, W).
+        probe_scaler : float or torch.Tensor
+            Scaling factor for the probe amplitude - we don't use absolute fluence anymore, because this can vary too much.
         F_scat : array-like or torch.Tensor
             Three-element vector containing the scattering factors.
         shifts : torch.Tensor
@@ -118,6 +121,7 @@ class PtychoReconstructionTrainer:
         self.R_probe = R_probe
         self.R = R
         self.fluence = fluence
+        self.probe_scaler = probe_scaler
         self.phi_cmap = phi_cmap
         self.theta_cmap = theta_cmap
         self.alternate_optimization = alternate_optimization
@@ -395,6 +399,7 @@ class PtychoReconstructionTrainer:
             with torch.no_grad():
                 scale = torch.sqrt(self.fluence / torch.sum(torch.abs(self.probe_amplitude) ** 2))
                 self.probe_amplitude.mul_(scale)
+                self.probe_amplitude.mul_(self.probe_scaler) # Apply additional scaling to the probe amplitude to ensure it's in a good range for optimization.
 
         for iteration in range(self.start_iter, self.start_iter + num_iterations):
             if self.normalise_probe_every_iter:
