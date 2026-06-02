@@ -330,6 +330,48 @@ def plot_probe_maps(probe_amplitude, Lx, Ly):
     plt.show()
 
 
+def _extract_probe_inset_view(probe_rgb, Lx, Ly, probe_inset_crop=None):
+    """Return a cropped probe image and matching extent for an inset."""
+    probe_rgb_np = np.asarray(probe_rgb)
+    if probe_rgb_np.ndim < 2:
+        return probe_rgb_np, [-Lx, Lx, -Ly, Ly]
+
+    height, width = probe_rgb_np.shape[:2]
+
+    if probe_inset_crop is None:
+        row_start, row_end = 0, height
+        col_start, col_end = 0, width
+    elif isinstance(probe_inset_crop, int):
+        crop_height = min(int(probe_inset_crop), height)
+        crop_width = min(int(probe_inset_crop), width)
+        row_start = max((height - crop_height) // 2, 0)
+        col_start = max((width - crop_width) // 2, 0)
+        row_end = row_start + crop_height
+        col_end = col_start + crop_width
+    elif len(probe_inset_crop) == 2:
+        crop_height = min(int(probe_inset_crop[0]), height)
+        crop_width = min(int(probe_inset_crop[1]), width)
+        row_start = max((height - crop_height) // 2, 0)
+        col_start = max((width - crop_width) // 2, 0)
+        row_end = row_start + crop_height
+        col_end = col_start + crop_width
+    elif len(probe_inset_crop) == 4:
+        row_start, row_end, col_start, col_end = (int(value) for value in probe_inset_crop)
+        row_start = max(row_start, 0)
+        col_start = max(col_start, 0)
+        row_end = min(max(row_end, row_start + 1), height)
+        col_end = min(max(col_end, col_start + 1), width)
+    else:
+        raise ValueError(
+            "probe_inset_crop must be None, an int, a (height, width) tuple, or a (row_start, row_end, col_start, col_end) tuple"
+        )
+
+    y_edges = np.linspace(-Ly, Ly, height + 1)
+    x_edges = np.linspace(-Lx, Lx, width + 1)
+    extent = [x_edges[col_start], x_edges[col_end], y_edges[row_start], y_edges[row_end]]
+    return probe_rgb_np[row_start:row_end, col_start:col_end], extent
+
+
 
 def plot_theta_phi_maps(theta, phi, Lx, Ly,
                        positions=None,
@@ -338,7 +380,11 @@ def plot_theta_phi_maps(theta, phi, Lx, Ly,
                        dx=0.0, dy=0.0,
                        show_positions=True,
                        label_positions=True,
-                       label_axes=True):
+                       label_axes=True,
+                       probe_amplitude=None,
+                       show_probe_inset=False,
+                       probe_inset_crop=None,
+                       title_on=False):
     """
     Plot theta and phi heatmaps, optionally overlaying scan positions.
     Parameters:
@@ -352,6 +398,11 @@ def plot_theta_phi_maps(theta, phi, Lx, Ly,
     - show_positions: Whether to show scan positions
     - label_positions: Whether to label scan positions with an index number
     - label_axes: Whether to label axes
+        - probe_amplitude: Optional complex probe to show as a cropped inset
+        - show_probe_inset: Whether to add the probe inset in the lower right
+        - probe_inset_crop: Optional crop for the probe inset. Use an int for a
+            centered square crop, a (height, width) tuple for a centered rectangle,
+            or (row_start, row_end, col_start, col_end) for explicit bounds.
     """
 
     # --- Convert inputs to numpy ---
@@ -392,7 +443,35 @@ def plot_theta_phi_maps(theta, phi, Lx, Ly,
     ax_neelins_local.imshow(make_neel_color_wheel_rgba(phi_cmap=phi_cmap, gamma=1.0), origin='lower', extent=[-1, 1, -1, 1])
     _decorate_probe_color_wheel_axes(ax_neelins_local)
 
-    axes.set_title(r'$\phi$ heatmap (colour: $\phi$, brightness: $|L_z|$)')
+    if show_probe_inset and probe_amplitude is not None:
+        probe_amplitude_np = _to_numpy(probe_amplitude)
+        probe_rgb = complex_to_rgb(probe_amplitude_np)
+        probe_inset_rgb, probe_inset_extent = _extract_probe_inset_view(
+            probe_rgb,
+            Lx,
+            Ly,
+            probe_inset_crop=probe_inset_crop,
+        )
+
+        ax_probeins_local = inset_axes(
+            axes,
+            width="28%",
+            height="28%",
+            loc='lower right',
+            borderpad=1.2,
+        )
+        ax_probeins_local.imshow(
+            probe_inset_rgb,
+            origin='lower',
+            extent=probe_inset_extent,
+        )
+        ax_probeins_local.set_xticks([])
+        ax_probeins_local.set_yticks([])
+        ax_probeins_local.set_facecolor((0, 0, 0, 0))
+        for spine in ax_probeins_local.spines.values():
+            spine.set_visible(False)
+    if title_on:
+        axes.set_title(r'$\phi$ heatmap (colour: $\phi$, brightness: $|L_z|$)')
 
     if label_axes:
         axes.set_xlabel(r'$x$ [m]')
