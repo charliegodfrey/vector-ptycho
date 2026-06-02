@@ -180,16 +180,19 @@ def plot_checkpoint_history(checkpoint_files, label=None, ax=None, line_styles=N
     if ax is None:
         _, ax = plt.subplots(figsize=(8, 5))
 
+    iteration_offset = 0
+
     for i, checkpoint_file in enumerate(checkpoint_files):
         ckpt = torch.load(checkpoint_file, map_location='cpu')
         iteration_numbers = np.asarray(ckpt['iteration_numbers'])
-        # Iteration numbers also need to be shifted to create a continuous x-axis across checkpoints
-        if i > 0:
-            iteration_numbers = iteration_numbers - iteration_numbers[0] + (iteration_numbers[-1] + 1) * i
         cosine_similarity_history = np.asarray(ckpt['cosine_similarity_history'])
 
         if iteration_numbers.size == 0:
             continue
+
+        # Keep the x-axis continuous across checkpoint boundaries.
+        if i > 0:
+            iteration_numbers = iteration_numbers - iteration_numbers[0] + iteration_offset
 
         if line_styles:
             style = line_styles[i % len(line_styles)]
@@ -204,6 +207,9 @@ def plot_checkpoint_history(checkpoint_files, label=None, ax=None, line_styles=N
             color=colour,
             **plot_kwargs,
         )
+
+        iteration_offset = iteration_numbers[-1] + 1
+
     ax.set_xlabel('Iteration')
     ax.set_ylabel('Cosine Similarity')
     ax.set_title('Ptycho Reconstruction Progress')
