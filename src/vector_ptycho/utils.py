@@ -418,31 +418,6 @@ class ForwardModel:
         # Stack over probes -> (num_probes, num_positions, H, W)
         return torch.stack(data, dim=0)
 
-def initialize_probe_amplitude(H, W, Lx, Ly, device):
-    '''
-
-    Initialise the probe amplitude with a guess that has a similar shape to the true probe, but is not exactly the same. This is to help convergence of the joint object-probe optimization.
-    '''
-    x = torch.linspace(-Lx, Lx, H, device=device)
-    y = torch.linspace(-Ly, Ly, W, device=device)
-    X, Y = torch.meshgrid(x, y, indexing='ij')
-    R = torch.sqrt(X**2 + Y**2)
-    diffuser = torch.rand((H, W), device=device) #0.7 * (torch.sin(1 * R) + torch.cos((Y * 1 + X * 1) - 0.8 * (X - 0.2)) + torch.cos((Y - X) - 0.5 * (X)))
-    P = torch.exp(2j * np.pi * diffuser) * (torch.exp(-0.5 * R))
-    return P
-
-def estimate_probe(H, W, Lx, Ly, I_meas, device):
-    '''
-    Estimate the probe intensity by square root of the diffraction pattern averaged over all scan positions. 
-    This is a common heuristic for probe initialization in ptychography.
-    Then inverse Fourier Transform to get an initial guess for the probe amplitude in real space.
-    '''
-    I_avg = I_meas.mean(dim=(0, 1))  # Average over scan positions
-    print('The shape of the diffraction pattern is: ', I_avg.shape)
-    P = torch.sqrt(I_avg)
-    P = iF(P)  # Inverse Fourier Transform to get initial probe guess in real space
-    return P
-
 
 def circle_overlap_percent(R, d):
     """

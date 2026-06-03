@@ -397,7 +397,7 @@ class PtychoReconstructionTrainer:
         if self.start_iter == 0:
             print('Normalising the probe amplitude to match the target fluence before starting training.')
             with torch.no_grad():
-                scale = torch.sqrt(self.fluence / torch.sum(torch.abs(self.probe_amplitude) ** 2))
+                scale = torch.sqrt(self.fluence / (torch.sum(torch.abs(self.probe_amplitude) ** 2) + self.eps))
                 self.probe_amplitude.mul_(scale)
                 self.probe_amplitude.mul_(self.probe_scaler) # Apply additional scaling to the probe amplitude to ensure it's in a good range for optimization.
 
@@ -406,6 +406,7 @@ class PtychoReconstructionTrainer:
                 with torch.no_grad():
                     scale = torch.sqrt(self.fluence / (torch.sum(torch.abs(self.probe_amplitude) ** 2) + self.eps))
                     self.probe_amplitude.mul_(scale)
+                    self.probe_amplitude.mul_(self.probe_scaler)
             if self.alternate_optimization and num_grad_params > 0:
                 active_param_name = active_param_names[alternate_optimization_counter % num_grad_params]
                 for param_name in self.requires_grad_flags:
@@ -434,6 +435,10 @@ class PtychoReconstructionTrainer:
             # Forward model
             model = ForwardModel(obj, Propagator(), Detector())
             I_pred = model.simulate_all(probes, self.scan)
+            #print(f"Max of I_pred at iteration {iteration}: {I_pred.max().item():.6e}")
+            #print(f"Max of I_meas at iteration {iteration}: {self.I_meas.max().item():.6e}")
+            #print(f"Predicted fluence at iteration {iteration}: {torch.sum(torch.abs(self.probe_amplitude/self.probe_scaler)**2).item():.6e}")
+            #print(f"True fluence at iteration {iteration}: {self.fluence.item():.6e}")
             loss = self.compute_loss(I_pred)
 
             # Backward pass
@@ -448,15 +453,16 @@ class PtychoReconstructionTrainer:
 
             loss_value = loss.item()
             cosine_similarity_value = None
-            if self.true_l is not None:
-                with torch.no_grad():
-                    # Crop the arrays to exclude the outer border.
-                    crop_size = 120  # Number of pixels to crop from each edge
-                    recon_l = self.l.detach()
-                    true_l = self.true_l.detach()
-                    recon_l_cropped = recon_l[:, crop_size:-crop_size, crop_size:-crop_size]
-                    true_l_cropped = true_l[:, crop_size:-crop_size, crop_size:-crop_size]
-                    cosine_similarity_value = neel_field_rmse(recon_l_cropped, true_l_cropped, eps=self.eps).item()
+            if iteration % 20 == 0:
+                if self.true_l is not None:
+                    with torch.no_grad():
+                        # Crop the arrays to exclude the outer border.
+                        crop_size = 120  # Number of pixels to crop from each edge
+                        recon_l = self.l.detach()
+                        true_l = self.true_l.detach()
+                        recon_l_cropped = recon_l[:, crop_size:-crop_size, crop_size:-crop_size]
+                        true_l_cropped = true_l[:, crop_size:-crop_size, crop_size:-crop_size]
+                        cosine_similarity_value = neel_field_rmse(recon_l_cropped, true_l_cropped, eps=self.eps).item()
 
             self.loss_history.append(loss_value)
             self.cosine_similarity_history.append(cosine_similarity_value)
