@@ -295,7 +295,13 @@ class PtychoReconstructionTrainer:
                 )
             )
         return probes
+    def compile_loss_function(self):
+        '''Compile some useful loss functions and use torch.compile to speed them up.'''
+        def STXM_loss(pred_sum, sqrt_meas_sum, eps):
+            return torch.sum((torch.sqrt(pred_sum + eps) - sqrt_meas_sum) ** 2)
+        self.STXM_loss_compiled = torch.compile(STXM_loss)
 
+        
     def compute_loss(self, I_pred):
         """
         Compute total loss with multiple components.
@@ -336,10 +342,12 @@ class PtychoReconstructionTrainer:
         if self.loss_prefactors.get('STXM_pf', 0.0) > 0:
             pred_sum = torch.sum(I_pred_safe, dim=(-2, -1))
             #meas_sum = torch.sum(self.I_meas, dim=(-2, -1)) # The sqrt of this is precomputed and stored in self.sqrt_meas_sum to save computation during training.
-            
+            '''
             loss = loss + self.loss_prefactors.get('STXM_pf', 0.0) * torch.sum(
                 (torch.sqrt(pred_sum + self.eps) - self.sqrt_meas_sum) ** 2
             )
+            '''
+            loss = loss + self.loss_prefactors.get('STXM_pf', 0.0) * self.STXM_loss_compiled(pred_sum, self.sqrt_meas_sum, self.eps)
         if np.abs(self.loss_prefactors.get('anisotropy_pf', 0.0)) > 0.0:
             loss = loss + self.loss_prefactors.get('anisotropy_pf', 0.0) * torch.mean(self.l[2]**2) # Positive prefactor will favour IP alignment.
         
