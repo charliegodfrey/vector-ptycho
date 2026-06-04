@@ -212,7 +212,7 @@ def plot_checkpoint_history(checkpoint_files, label=None, ax=None, line_styles=N
 
     ax.set_xlabel('Iteration')
     ax.set_ylabel('Cosine Similarity')
-    ax.set_title('Ptycho Reconstruction Progress')
+    #ax.set_title('Ptycho Reconstruction Progress')
     return ax
 
 
@@ -290,7 +290,7 @@ def plot_probe_maps(probe_amplitude, Lx, Ly):
     # Convert complex probe to RGB
     probe_rgb = complex_to_rgb(probe_amplitude_np)
     
-    ax.imshow(probe_rgb, extent=[-Lx, Lx, -Ly, Ly], origin='lower')
+    ax.imshow(probe_rgb, extent=[-Lx/2, Lx/2, -Ly/2, Ly/2], origin='lower')
     ax.set_title('Probe (Complex as RGB)')
     ax.set_xlabel(r'$x$ [m]')
     ax.set_ylabel(r'$y$ [m]')
@@ -334,7 +334,7 @@ def _extract_probe_inset_view(probe_rgb, Lx, Ly, probe_inset_crop=None):
     """Return a cropped probe image and matching extent for an inset."""
     probe_rgb_np = np.asarray(probe_rgb)
     if probe_rgb_np.ndim < 2:
-        return probe_rgb_np, [-Lx, Lx, -Ly, Ly]
+        return probe_rgb_np, [-Lx/2, Lx/2, -Ly/2, Ly/2]
 
     height, width = probe_rgb_np.shape[:2]
 
