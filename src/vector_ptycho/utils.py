@@ -235,10 +235,10 @@ class NeelObject:
 
         Usage:
         - NeelObject(F_scat) where `F_scat` is an iterable/tensor of length 3
-          giving [C, A1, A2].
+          giving [F0, F1, F2] scattering parameters.
 
         Internally `self.F_scat` stores the 3-element complex vector and
-        `self.C`, `self.A1`, `self.A2` are convenience references to the
+        `self.F0`, `self.F1`, `self.F2` are convenience references to the
         individual components.
         """
         F = F_scat
@@ -246,11 +246,11 @@ class NeelObject:
             F = F.detach()
         F = torch.as_tensor(F)
         if F.numel() != 3:
-            raise ValueError("F_scat must have 3 elements (C, A1, A2)")
+            raise ValueError("F_scat must have 3 elements (F0, F1, F2)")
         if not torch.is_complex(F):
             F = F.to(torch.complex64)
         self.F_scat = F
-        self.C, self.A1, self.A2 = self.F_scat[0], self.F_scat[1], self.F_scat[2]
+        self.F0, self.F1, self.F2 = self.F_scat[0], self.F_scat[1], self.F_scat[2]
     def build_jones_from_cartesian(self, lx, ly, lz):
         """
         Build Jones matrix from Cartesian components.

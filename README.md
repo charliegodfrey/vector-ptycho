@@ -4,6 +4,8 @@ Standard vector ptychography solves for a general Jones matrix using polarizatio
 
 Here, we instead embed the physics of XMLD scattering directly into the forward model, reducing the number of unknowns and enabling reconstruction without polarization analysis.
 
+![PIVP soft X-ray experimental setup](images/PIVP%20soft%20xray%20experimental%20setup.png)
+
 ## Key Ideas
 
 - The sample (object) is represented by pixels, each described by a complex Jones matrix.
@@ -99,3 +101,14 @@ F^{(2)}
 (\sin\theta \sin\phi)^2
 \end{pmatrix}
 ```
+
+## Algorithm
+![Algorithm](images/PIVP%20Algorithm.png)
+
+## Notebooks
+
+Jupyter notebooks and their descriptions:
+
+1. `Reconstructing_a_simulated_Neel_field.ipynb` - Simulate a Neel field, a probe and a complete dataset. Then run a full Ptycho reconstruction of probe and Neel field.
+2. `Resolution_test_structure.ipynb` - Plot an example Neel field.
+3. `Cosine_similarity.ipynb` - Compare the cosine similarity between two Neel vector fields.
