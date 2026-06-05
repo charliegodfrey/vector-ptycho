@@ -105,6 +105,20 @@ F^{(2)}
 ## Algorithm
 ![Algorithm](images/PIVP%20Algorithm.png)
 
+### Classes overview
+
+A brief overview of the main classes in `src/vector_ptycho` used by the algorithm:
+
+- `PtychoReconstructionTrainer`: Orchestrates the reconstruction and optimization loop. Manages learnable parameters (object `l`, probe amplitude, `F_scat`, shifts), optimizers/schedulers, loss terms, checkpointing, and training utilities.
+- `NeelObject`: Physics-driven parameterisation of the object. Stores scattering factors `F_scat` and builds a complex Jones matrix from Neel vector angles or Cartesian components via `build_jones` / `build_jones_from_cartesian`.
+- `Propagator`: Implements forward propagation (far-field Fourier propagation) for a `JonesField` via the Fourier operators (`F` / `iF`), exposing `propagate(field)`.
+- `Detector`: Computes measured intensity from a `JonesField` (`intensity(field)`) and can optionally add Poisson noise (`add_poisson_noise`).
+- `JonesObject`: Holds a full Jones matrix `J` and applies it to a `JonesField` using `apply(field)` to produce the output JonesField.
+- `Probe`: Encapsulates probe amplitude and Jones vector, supports normalization and shifting. Provides `field()` to get a `JonesField` and `shifted(dy, dx)` to move the probe.
+
+
+
+
 ## Notebooks
 
 Jupyter notebooks and their descriptions:
@@ -112,3 +126,19 @@ Jupyter notebooks and their descriptions:
 1. `Reconstructing_a_simulated_Neel_field.ipynb` - Simulate a Neel field, a probe and a complete dataset. Then run a full Ptycho reconstruction of probe and Neel field.
 2. `Resolution_test_structure.ipynb` - Plot an example Neel field.
 3. `Cosine_similarity.ipynb` - Compare the cosine similarity between two Neel vector fields.
+
+## Installation
+
+### Development setup
+Ensure you already have UV installed (https://docs.astral.sh/uv/). Then clone the repository and install dependencies by opening a terminal in a folder and entering the following commands:
+```
+git clone https://github.com/charliegodfrey/vector-ptycho.git
+
+cd vector-ptycho
+
+uv sync
+```
+This will create a virtual environment and install all dependencies. You will then be able to open and run the Jupyter notebooks in the 'notebook folder'.
+
+
+
