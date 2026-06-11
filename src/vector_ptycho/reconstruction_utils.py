@@ -72,7 +72,7 @@ class PtychoReconstructionTrainer:
         shifts : torch.Tensor
             Shifts for each probe and position, shape (N_probes, N_scan, 2).
         device : torch.device or str
-            Device to use.
+            Device to use - 'cuda' or 'cpu'
         loss_prefactors : dict
             Prefactors for different loss components.
         optimizer_params : dict
@@ -84,7 +84,7 @@ class PtychoReconstructionTrainer:
         R : torch.Tensor
             Radial distance grid.
         fluence : float or torch.Tensor
-            Target fluence.
+            Target fluence in number of photons.
         plot_update : callable
             Function to call for live plot updates.
         phi_cmap : colormap
@@ -147,17 +147,17 @@ class PtychoReconstructionTrainer:
         if loss_prefactors:
             self.loss_prefactors.update(loss_prefactors)
         self.optimizer_params = optimizer_params or {
-            'l_lr': 1e-1, 
+            'l_lr': 1e-3, 
             'F_scat_lr': 1e-5,
-            'probe_lr': 1e-1,
+            'probe_lr': 1e-2,
             'shifts_lr': 1e-1
         }
 
 
         self.requires_grad_flags = requires_grad_flags or{
             'l': True,
-            'F_scat': True,
-            'shifts': True,
+            'F_scat': False,
+            'shifts': False,
             'probe_amplitude': True
         }
 
@@ -318,6 +318,7 @@ class PtychoReconstructionTrainer:
 
         # Amplitude-based ptychographic loss
         if self.loss_prefactors.get('sqrt_amp_pf', 0.0) > 0:
+            ''' This is what I use for most of the Ptycho reconstructions.'''
             loss = loss + self.loss_prefactors.get('sqrt_amp_pf', 0.0) * torch.mean(
                 (torch.sqrt(I_pred_safe + self.eps) - torch.sqrt(self.I_meas + self.eps)) ** 2
             )
@@ -335,6 +336,10 @@ class PtychoReconstructionTrainer:
             )
 
         if self.loss_prefactors.get('STXM_pf', 0.0) > 0:
+            '''This is what I use for most of the Ptycho object initialisation.
+            This is equivelant to pretending the Ptycho instrument is actually STXM (Scanning Transmission X-ray Microscopy).
+            We just integrate the total intensity on the detector for each probe and position, and compare that to the measured total intensity for that probe and position.
+            '''
             pred_sum = torch.sum(I_pred_safe, dim=(-2, -1))
             #meas_sum = torch.sum(self.I_meas, dim=(-2, -1)) # The sqrt of this is precomputed and stored in self.sqrt_meas_sum to save computation during training.
             
@@ -368,7 +373,7 @@ class PtychoReconstructionTrainer:
         diff_scan_idx=0,
     ):
         """
-        Full training loop with complex scheduling and optional randomization.
+        Main training loop for ptychographic reconstruction.
         
         Parameters
         ----------
@@ -436,10 +441,6 @@ class PtychoReconstructionTrainer:
             # Forward model
             model = ForwardModel(obj, Propagator(), Detector())
             I_pred = model.simulate_all(probes, self.scan)
-            #print(f"Max of I_pred at iteration {iteration}: {I_pred.max().item():.6e}")
-            #print(f"Max of I_meas at iteration {iteration}: {self.I_meas.max().item():.6e}")
-            #print(f"Predicted fluence at iteration {iteration}: {torch.sum(torch.abs(self.probe_amplitude/self.probe_scaler)**2).item():.6e}")
-            #print(f"True fluence at iteration {iteration}: {self.fluence.item():.6e}")
             loss = self.compute_loss(I_pred)
 
             # Backward pass
@@ -537,5 +538,3 @@ class PtychoReconstructionTrainer:
             "loss_prefactors": self.loss_prefactors,
             "start_iter": self.start_iter,
         }
-
-

@@ -24,7 +24,7 @@ def normalise_neel(l):
 
 
 def neel_field_rmse(recon_l, true_l, eps=1e-8):
-    """Compute a similarity score between two Néel vector fields.
+    """Compute a cosine similarity score between two Néel vector fields.
 
     Returns a scalar in [0, 1]:
       - 1.0  : perfect alignment everywhere
@@ -108,12 +108,14 @@ def _shift_complex_image(image, shifts):
 # Fourier operators
 # =========================
 def F(x):
+    '''Centered FFT'''
     return torch.fft.fftshift(
         torch.fft.fft2(torch.fft.fftshift(x, dim=(-2, -1)), norm='forward'),
         dim=(-2, -1)
     )
 
 def iF(x):
+    '''Centered IFFT'''
     return torch.fft.ifftshift(
         torch.fft.ifft2(torch.fft.ifftshift(x, dim=(-2, -1)), norm='backward'),
         dim=(-2, -1)
@@ -313,6 +315,9 @@ class NeelObject:
 # =========================
 class Propagator():
     def propagate(self, field: JonesField):
+        '''Propagate a Jones field to the far field (Fraunhofer diffraction) using FFT.
+        Each polarization component is propagated independently.
+        '''
         return JonesField(F(field.Ex), F(field.Ey))
 
 

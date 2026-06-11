@@ -227,23 +227,41 @@ def plot_some_diffraction_patterns(I_sim, positions, scan_indices, probe_numbers
     
     probe_numbers: List of probe numbers to plot (e.g. [0, 1, 2, 3])
     '''
-    fig, axes = plt.subplots(4, 4, figsize=(12, 12))
+    n_rows = len(probe_numbers)
+    n_cols = len(scan_indices)
+
+    if n_rows == 0 or n_cols == 0:
+        raise ValueError('probe_numbers and scan_indices must both be non-empty')
+
+    fig, axes = plt.subplots(
+        n_rows,
+        n_cols,
+        figsize=(3 * n_cols, 3 * n_rows),
+    )
+
+    if n_rows == 1 and n_cols == 1:
+        axes = np.array([[axes]])
+    elif n_rows == 1:
+        axes = axes[np.newaxis, :]
+    elif n_cols == 1:
+        axes = axes[:, np.newaxis]
+
+    positions_np = _to_numpy(positions)
 
     for i, probe_number in enumerate(probe_numbers):      # rows
         for j, scan_idx in enumerate(scan_indices):       # columns
-            
+
+            frame = _to_numpy(I_sim[probe_number, scan_idx])
             axes[i, j].imshow(
-                np.log10(I_sim[probe_number, scan_idx].cpu()+1e-8),
-                cmap='inferno'
-            )
-            
-            '''
-            axes[i, j].imshow(
-                np.log10(I_sim[probe_number, scan_idx].cpu()+1e-8),
+                np.log10(frame + 1e-8),
                 cmap='inferno',
             )
-            '''
-            axes[i, j].set_title(f'Probe {probe_number}, Pos {scan_idx}, x={positions[scan_idx, 0].item():.2f}, y={positions[scan_idx, 1].item():.2f}')
+
+            x_pos = positions_np[scan_idx, 0]
+            y_pos = positions_np[scan_idx, 1]
+            axes[i, j].set_title(
+                f'Probe {probe_number}, Pos {scan_idx}, x={x_pos:.2f}, y={y_pos:.2f}'
+            )
             axes[i, j].axis('off')
 
     plt.tight_layout()
@@ -251,7 +269,8 @@ def plot_some_diffraction_patterns(I_sim, positions, scan_indices, probe_numbers
 
 def make_vector_color_map(plot=False):
     '''Create a custom colormap for visualizing vector fields - this is for plotting the phi map
-    It is designed so that 0 and 180 degrees map to the same color.'''
+    It is designed so that 0 and 180 degrees map to the same color since XMLD is 180 deg periodic.
+    '''
     #wheel_colors = "#DA314E",'#2E2E2E',"#4EB955",'#2E2E2E',"#3354A4",'#2E2E2E',"#DA314E"
     #https://meyerweb.com/eric/tools/color-blend/#3354A4:DA314E:1:hex
     #wheel_colors = "#DA314E",'#947552',"#4EB955",'#41877D',"#3354A4",'#874379',"#DA314E"
@@ -331,7 +350,9 @@ def plot_probe_maps(probe_amplitude, Lx, Ly):
 
 
 def _extract_probe_inset_view(probe_rgb, Lx, Ly, probe_inset_crop=None):
-    """Return a cropped probe image and matching extent for an inset."""
+    """Return a cropped probe image and matching extent for an inset.
+    I use this to put a small probe in the corner of the theta/phi maps.
+    """
     probe_rgb_np = np.asarray(probe_rgb)
     if probe_rgb_np.ndim < 2:
         return probe_rgb_np, [-Lx/2, Lx/2, -Ly/2, Ly/2]
