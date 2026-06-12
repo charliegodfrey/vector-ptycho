@@ -449,7 +449,7 @@ def plot_theta_phi_maps(theta, phi, Lx, Ly,
 
     im = axes.imshow(
         neel_rgb,
-        extent=[-Lx, Lx, -Ly, Ly],
+        extent=[-Lx/2, Lx/2, -Ly/2, Ly/2],
         origin='lower'
     )
 
