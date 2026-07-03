@@ -272,7 +272,8 @@ class NeelObject:
         theta, phi: real tensors (H, W)
         returns: (H, W, 2, 2) complex
 
-        elements = 'diagonal'  # 'full', 'diagonal', or 'off-diagonal'
+        elements = 'diagonal'  # 'full', 'diagonal', 'off-diagonal'
+        or 'diagonal_magnetic' or 'full_magnetic' for the magnetic-only part of the Jones matrix (no charge scattering).
         """
 
         # Convert to complex for safe algebra
@@ -301,10 +302,38 @@ class NeelObject:
                 torch.stack([Jyx, Jyy], dim=-1)
             ], dim=-2)
 
+        if elements == 'full_charge':
+            Jxx = (2/3)-self.F_scat[0]
+            Jxy = torch.zeros_like(Jxx)
+            Jyx = Jxy
+            Jyy = (2/3)-self.F_scat[0]
+            J = torch.stack([
+                torch.stack([Jxx, Jxy], dim=-1),
+                torch.stack([Jyx, Jyy], dim=-1)
+            ], dim=-2)
+
         if elements == 'diagonal':
             J = torch.stack([
                 torch.stack([Jxx, torch.zeros_like(Jxx)], dim=-1),
                 torch.stack([torch.zeros_like(Jxx), Jyy], dim=-1)
+            ], dim=-2)
+
+        if elements == 'diagonal_magnetic':
+            Jxx_no_charge = self.F_scat[2]*(sin_t*cos_p)**2
+            Jyy_no_charge = self.F_scat[2]*(sin_t*sin_p)**2
+            J = torch.stack([
+                torch.stack([Jxx_no_charge, torch.zeros_like(Jxx)], dim=-1),
+                torch.stack([torch.zeros_like(Jxx), Jyy_no_charge], dim=-1)
+            ], dim=-2)
+
+        if elements == 'full_magnetic':
+            Jxx_no_charge = self.F_scat[2]*(sin_t*cos_p)**2
+            Jxy_no_charge = self.F_scat[2]*sin_t**2*cos_p*sin_p #torch.zeros_like(Jxx)#
+            Jyx_no_charge = Jxy_no_charge
+            Jyy_no_charge = self.F_scat[2]*(sin_t*sin_p)**2
+            J = torch.stack([
+                torch.stack([Jxx_no_charge, Jxy_no_charge], dim=-1),
+                torch.stack([Jyx_no_charge, Jyy_no_charge], dim=-1)
             ], dim=-2)
         
         return J
