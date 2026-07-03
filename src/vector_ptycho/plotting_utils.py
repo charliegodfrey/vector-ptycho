@@ -128,6 +128,40 @@ def _decorate_probe_color_wheel_axes(ax, label_color='white'):
     ax.text(-1.18, 0.0, r'$\pi$', **text_kwargs)
     ax.text(0.0, -1.18, r'$3\pi/2$', **text_kwargs)
 
+
+def _pick_length_unit(length_m):
+    """Return a display scale and label for a length in meters.
+    This is used to replace labels like 1e-6 m with 1 μm to the axis label.
+    """
+    length_m = abs(float(length_m))
+    if length_m >= 1e-3:
+        return 1e3, r'mm'
+    if length_m >= 1e-6:
+        return 1e6, r'$\mu$m'
+    if length_m >= 1e-9:
+        return 1e9, r'nm'
+    return 1.0, r'm'
+
+
+def _format_length_label(axis_name, unit_label):
+    '''Format an axis label with LaTeX for a length unit.
+    Parameters
+    ----------
+    axis_name : str
+        The name of the axis.
+    unit_label : str
+        The label for the unit.
+    Returns
+    -------
+    str
+        The formatted axis label.
+    '''
+    return rf'${axis_name}$ ({unit_label})'
+
+
+def _scaled_extent(xmin, xmax, ymin, ymax, scale):
+    return [xmin * scale, xmax * scale, ymin * scale, ymax * scale]
+
 __all__ = [
     'plot_some_diffraction_patterns',
     'make_vector_color_map',
@@ -305,14 +339,17 @@ def plot_probe_maps(probe_amplitude, Lx, Ly):
     """
     fig, ax = plt.subplots(1, 1, figsize=(6, 6))
     probe_amplitude_np = _to_numpy(probe_amplitude)
+
+    length_scale, length_unit = _pick_length_unit(max(Lx, Ly))
+    probe_extent = _scaled_extent(-Lx / 2, Lx / 2, -Ly / 2, Ly / 2, length_scale)
     
     # Convert complex probe to RGB
     probe_rgb = complex_to_rgb(probe_amplitude_np)
     
-    ax.imshow(probe_rgb, extent=[-Lx/2, Lx/2, -Ly/2, Ly/2], origin='lower')
+    ax.imshow(probe_rgb, extent=probe_extent, origin='lower')
     ax.set_title('Probe (Complex as RGB)')
-    ax.set_xlabel(r'$x$ [m]')
-    ax.set_ylabel(r'$y$ [m]')
+    ax.set_xlabel(_format_length_label('x', length_unit))
+    ax.set_ylabel(_format_length_label('y', length_unit))
     
     # Add color wheel inset
     axins = inset_axes(
@@ -393,6 +430,13 @@ def _extract_probe_inset_view(probe_rgb, Lx, Ly, probe_inset_crop=None):
     return probe_rgb_np[row_start:row_end, col_start:col_end], extent
 
 
+def _scale_positions_array(positions, scale):
+    positions_np = _to_numpy(positions)
+    scaled = np.array(positions_np, copy=True)
+    scaled[..., :2] = scaled[..., :2] * scale
+    return scaled
+
+
 
 def plot_theta_phi_maps(theta, phi, Lx, Ly,
                        positions=None,
@@ -438,6 +482,10 @@ def plot_theta_phi_maps(theta, phi, Lx, Ly,
     # Default phi colormap fallback
     if phi_cmap is None:
         phi_cmap = 'hsv'
+
+    length_scale, length_unit = _pick_length_unit(max(Lx, Ly))
+    plot_extent = [(-Lx / 2) * length_scale, (Lx / 2) * length_scale,
+                   (-Ly / 2) * length_scale, (Ly / 2) * length_scale]
  
     fig, axes = plt.subplots(1, 1, figsize=(6, 6))
 
@@ -449,7 +497,7 @@ def plot_theta_phi_maps(theta, phi, Lx, Ly,
 
     im = axes.imshow(
         neel_rgb,
-        extent=[-Lx/2, Lx/2, -Ly/2, Ly/2],
+        extent=plot_extent,
         origin='lower'
     )
 
@@ -473,6 +521,7 @@ def plot_theta_phi_maps(theta, phi, Lx, Ly,
             Ly,
             probe_inset_crop=probe_inset_crop,
         )
+        probe_inset_extent = [value * length_scale for value in probe_inset_extent]
 
         ax_probeins_local = inset_axes(
             axes,
@@ -495,21 +544,24 @@ def plot_theta_phi_maps(theta, phi, Lx, Ly,
         axes.set_title(r'$\phi$ heatmap (colour: $\phi$, brightness: $|L_z|$)')
 
     if label_axes:
-        axes.set_xlabel(r'$x$ [m]')
-        axes.set_ylabel(r'$y$ [m]')
+        axes.set_xlabel(_format_length_label('x', length_unit))
+        axes.set_ylabel(_format_length_label('y', length_unit))
     else:
         axes.set_xticks([])
         axes.set_yticks([])
 
     # --- Overlay positions (phi panel) ---
     if show_positions and pos is not None:
-        axes.scatter(pos[:, 1], pos[:, 0],
+        pos_scaled = _scale_positions_array(pos, length_scale)
+        dx_scaled = dx * length_scale
+        dy_scaled = dy * length_scale
+        axes.scatter(pos_scaled[:, 1], pos_scaled[:, 0],
                         c='cyan', marker='x', s=12,
                         label='Scan positions')
 
         if label_positions:
-            for k, (dy_pos, dx_pos) in enumerate(pos):
-                axes.text(dx_pos - dx, dy_pos - dy, str(k),
+            for k, (dy_pos, dx_pos) in enumerate(pos_scaled):
+                axes.text(dx_pos - dx_scaled, dy_pos - dy_scaled, str(k),
                              color='white', fontsize=8,
                              ha='right', va='top')
 
