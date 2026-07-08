@@ -519,3 +519,101 @@ def make_ip_strip_domain_walls(
         return theta, phi, Mx, My, Mz
 
     return theta_np, phi_np, Mx, My, Mz
+
+
+def make_center_strip_theta_phi(
+    Nx=300,
+    Ny=300,
+    Lx=10.0,
+    Ly=None,
+    strip_width=1.0e-6,          # physical units — width of the central strip
+    strip_theta=np.pi / 2,      # theta inside the strip
+    strip_phi=0.0,              # phi   inside the strip
+    background_theta=np.pi / 2, # theta of the surrounding background
+    background_phi=np.pi,       # phi   of the surrounding background
+    plot=True,
+    save_path='center_strip.svg',
+    export_path=None,
+    return_torch=True,
+    out_device=None,
+    cm='twilight',
+):
+    """
+    Build a magnetic texture consisting of a single vertical strip running
+    down the centre of the image (spanning the full height), with its own
+    (theta, phi), embedded in a uniform background with a different
+    (theta, phi).
+
+    The strip is centred at x = 0 and has width `strip_width` (physical units).
+
+    Returns:
+        theta, phi  shape (Ny, Nx)  — ready for NeelObject.build_jones()
+        Mx, My, Mz  shape (Ny, Nx)  — magnetisation components
+    """
+    if out_device is None:
+        out_device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    if Ly is None:
+        Ly = Lx
+
+    # ------------------------------------------------------------------
+    # Build coordinate grids
+    # ------------------------------------------------------------------
+    x = np.linspace(-Lx / 2, Lx / 2, Nx, dtype=np.float32)
+    y = np.linspace(-Ly / 2, Ly / 2, Ny, dtype=np.float32)
+    X, Y = np.meshgrid(x, y, indexing='xy')
+
+    # ------------------------------------------------------------------
+    # Fill background, then overwrite the central strip
+    # ------------------------------------------------------------------
+    theta_np = np.full((Ny, Nx), background_theta, dtype=np.float32)
+    phi_np   = np.full((Ny, Nx), background_phi,   dtype=np.float32)
+
+    hw = strip_width / 2.0
+    strip_mask = np.abs(X) <= hw       # full height, centred in x
+
+    theta_np[strip_mask] = strip_theta
+    phi_np[strip_mask]   = strip_phi
+
+    # ------------------------------------------------------------------
+    # Derive Mx, My, Mz
+    # ------------------------------------------------------------------
+    Mx = np.sin(theta_np) * np.cos(phi_np)
+    My = np.sin(theta_np) * np.sin(phi_np)
+    Mz = np.cos(theta_np)
+
+    # ------------------------------------------------------------------
+    # Optional export
+    # ------------------------------------------------------------------
+    if export_path is not None:
+        np.savez(export_path, theta=theta_np, phi=phi_np)
+
+    # ------------------------------------------------------------------
+    # Plot
+    # ------------------------------------------------------------------
+    if plot:
+        fig, axes = plot_theta_phi_maps(
+            theta_np, phi_np, Lx, Ly,
+            positions=None,
+            theta_cmap='magma',
+            phi_cmap=cm,
+            dx=0.0, dy=0.0,
+            show_positions=False,
+            label_positions=False,
+            label_axes=False,
+        )
+
+        plt.tight_layout()
+        if save_path is not None:
+            plt.savefig(save_path, dpi=500, bbox_inches='tight')
+        plt.show()
+
+    # ------------------------------------------------------------------
+    # Return
+    # ------------------------------------------------------------------
+    if return_torch:
+        theta = torch.tensor(theta_np, dtype=torch.float32, device=out_device)
+        phi   = torch.tensor(phi_np,   dtype=torch.float32, device=out_device)
+        return theta, phi, Mx, My, Mz
+
+    return theta_np, phi_np, Mx, My, Mz
