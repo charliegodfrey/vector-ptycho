@@ -1,3 +1,4 @@
+from sympy import field
 import torch
 import torch.nn as nn
 import numpy as np
@@ -361,6 +362,25 @@ class Detector:
             intensity = torch.poisson(torch.clamp(intensity, min=0))
 
         return intensity
+    
+    def intensity_xx(self, field: JonesField):
+        # Compute intensity for the x-polarized component only (as if an exit polarizer is placed in the x-direction before the detector)
+        intensity = torch.abs(field.Ex)**2
+
+        if self.add_poisson_noise:
+            intensity = torch.poisson(torch.clamp(intensity, min=0))
+
+        return intensity
+
+    def intensity_xy(self, field: JonesField):
+        intensity = torch.abs(field.Ey)**2
+
+        if self.add_poisson_noise:
+            intensity = torch.poisson(torch.clamp(intensity, min=0))
+
+        return intensity
+
+    
 
 
 # =========================
@@ -404,7 +424,7 @@ class ForwardModel:
         self.propagator = propagator
         self.detector = detector
 
-    def simulate_all(self, probes, scan, position_indices=None):
+    def simulate_all(self, probes, scan, position_indices=None, return_orthogonal_scattering=False):
         """
         Batched simulation over probes and scan positions.
 
@@ -413,6 +433,8 @@ class ForwardModel:
         (broadcasting over positions), then perform a single batched FFT
         across all positions for GPU efficiency. Returns a tensor of
         shape (num_probes, num_positions, H, W).
+
+        If return_orthogonal_scattering is True, also returns two arrays, one for each orthogonal scattering channel, of shape (num_probes, num_positions, H, W).
         """
 
         if position_indices is None:
@@ -422,6 +444,10 @@ class ForwardModel:
             positions = scan.positions.index_select(0, idx)
 
         data = []
+
+        if return_orthogonal_scattering:
+            data_xx = []
+            data_xy = []
 
         for i, probe in enumerate(probes):
             amp = probe.amplitude  # (H, W)
@@ -449,8 +475,20 @@ class ForwardModel:
             # I has shape (P, H, W) for this probe
             data.append(I)
 
+            if return_orthogonal_scattering:
+                # Compute orthogonal scattering channels (as if we have an exit polariser in the x and y directions before the detector)
+                I_xx = self.detector.intensity_xx(field)
+                I_xy = self.detector.intensity_xy(field)
+                data_xx.append(I_xx)
+                data_xy.append(I_xy)
+
+        if return_orthogonal_scattering:
+            # Stack over probes -> (num_probes, num_positions, H, W)
+            return torch.stack(data, dim=0), torch.stack(data_xx, dim=0), torch.stack(data_xy, dim=0)
+        else:
         # Stack over probes -> (num_probes, num_positions, H, W)
-        return torch.stack(data, dim=0)
+        # This is normal operation for ptychography (no exit polariser)
+            return torch.stack(data, dim=0)
 
 
 def circle_overlap_percent(R, d):

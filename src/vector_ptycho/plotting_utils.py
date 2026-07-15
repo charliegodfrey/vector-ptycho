@@ -333,7 +333,7 @@ def make_vector_color_map(plot=False):
     return RGB_scale
 
 
-def plot_probe_maps(probe_amplitude, Lx, Ly):
+def plot_probe_maps(probe_amplitude, Lx, Ly, axes_show=True):
     """
     Plot complex probe as RGB (phase as hue, magnitude as brightness).
     """
@@ -347,10 +347,14 @@ def plot_probe_maps(probe_amplitude, Lx, Ly):
     probe_rgb = complex_to_rgb(probe_amplitude_np)
     
     ax.imshow(probe_rgb, extent=probe_extent, origin='lower')
-    ax.set_title('Probe (Complex as RGB)')
-    ax.set_xlabel(_format_length_label('x', length_unit))
-    ax.set_ylabel(_format_length_label('y', length_unit))
-    
+    #ax.set_title('Probe (Complex as RGB)')
+    #ax.set_xlabel(_format_length_label('x', length_unit))
+    #ax.set_ylabel(_format_length_label('y', length_unit))
+    if not axes_show:
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.set_xlabel('')
+        ax.set_ylabel('')
     # Add color wheel inset
     axins = inset_axes(
         ax,

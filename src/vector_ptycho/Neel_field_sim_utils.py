@@ -192,7 +192,7 @@ def generate_circle(radius=0.5e-6, Nx=300,Ny=300, Lx=5e-6, Ly=5e-6, plot=True, c
                            dx=0.0, dy=0.0,
                            show_positions=False,
                            label_positions=False,
-                           label_axes=True)
+                           label_axes=False)
         plt.tight_layout()
         plt.show()
 
