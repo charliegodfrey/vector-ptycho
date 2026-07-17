@@ -270,11 +270,11 @@ class NeelObject:
         This uses the form of magnetic scattering for a magnetic ion in a spherical environment from:
         Phys. Rev. B 82, 094403 – Published 1 September, 2010
         DOI: https://doi.org/10.1103/PhysRevB.82.094403
+        Then averages it over two antiparrallel sublatticies to get the behaviour of a collinear AFM Neel vector.
         theta, phi: real tensors (H, W)
         returns: (H, W, 2, 2) complex
 
-        elements = 'diagonal'  # 'full', 'diagonal', 'off-diagonal'
-        or 'diagonal_magnetic' or 'full_magnetic' for the magnetic-only part of the Jones matrix (no charge scattering).
+        elements = 'diagonal'  # 'full'
         """
 
         # Convert to complex for safe algebra
@@ -285,17 +285,15 @@ class NeelObject:
         sin_t = torch.sin(theta)
         cos_p = torch.cos(phi)
         sin_p = torch.sin(phi)
+        sin_t_2 = sin_t**2
+        sin_p_2 = sin_p**2
+        cos_p_2 = cos_p**2
 
-        Jxx = (2/3)-self.F_scat[0]+self.F_scat[2]*(sin_t*cos_p)**2
-        Jxy = self.F_scat[2]*sin_t**2*cos_p*sin_p #torch.zeros_like(Jxx)#
+
+        Jxx = self.F_scat[0]+self.F_scat[2]*(sin_t_2*cos_p_2 - (1/3))
+        Jxy = self.F_scat[2]*sin_t_2*cos_p*sin_p
         Jyx = Jxy
-        Jyy = (2/3)-self.F_scat[0]+self.F_scat[2]*(sin_t*sin_p)**2
-
-        if elements == 'off-diagonal':
-            J = torch.stack([
-            torch.stack([torch.zeros_like(Jxx), Jxy], dim=-1),
-            torch.stack([Jyx, torch.zeros_like(Jxx)], dim=-1)
-            ], dim=-2)
+        Jyy = self.F_scat[0]+self.F_scat[2]*(sin_t_2*sin_p_2 - (1/3))
 
         if elements == 'full':
             J = torch.stack([
@@ -303,40 +301,6 @@ class NeelObject:
                 torch.stack([Jyx, Jyy], dim=-1)
             ], dim=-2)
 
-        if elements == 'full_charge':
-            Jxx = (2/3)-self.F_scat[0]
-            Jxy = torch.zeros_like(Jxx)
-            Jyx = Jxy
-            Jyy = (2/3)-self.F_scat[0]
-            J = torch.stack([
-                torch.stack([Jxx, Jxy], dim=-1),
-                torch.stack([Jyx, Jyy], dim=-1)
-            ], dim=-2)
-
-        if elements == 'diagonal':
-            J = torch.stack([
-                torch.stack([Jxx, torch.zeros_like(Jxx)], dim=-1),
-                torch.stack([torch.zeros_like(Jxx), Jyy], dim=-1)
-            ], dim=-2)
-
-        if elements == 'diagonal_magnetic':
-            Jxx_no_charge = self.F_scat[2]*(sin_t*cos_p)**2
-            Jyy_no_charge = self.F_scat[2]*(sin_t*sin_p)**2
-            J = torch.stack([
-                torch.stack([Jxx_no_charge, torch.zeros_like(Jxx)], dim=-1),
-                torch.stack([torch.zeros_like(Jxx), Jyy_no_charge], dim=-1)
-            ], dim=-2)
-
-        if elements == 'full_magnetic':
-            Jxx_no_charge = self.F_scat[2]*(sin_t*cos_p)**2
-            Jxy_no_charge = self.F_scat[2]*sin_t**2*cos_p*sin_p #torch.zeros_like(Jxx)#
-            Jyx_no_charge = Jxy_no_charge
-            Jyy_no_charge = self.F_scat[2]*(sin_t*sin_p)**2
-            J = torch.stack([
-                torch.stack([Jxx_no_charge, Jxy_no_charge], dim=-1),
-                torch.stack([Jyx_no_charge, Jyy_no_charge], dim=-1)
-            ], dim=-2)
-        
         return J
 
 
