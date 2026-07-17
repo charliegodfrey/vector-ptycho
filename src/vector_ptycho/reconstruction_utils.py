@@ -452,14 +452,14 @@ class PtychoReconstructionTrainer:
                 )
             self.optimizer.step()
             #self.scheduler.step(loss)
-
+            n_check  = 10  # Check every iteration
             loss_value = loss.item()
             cosine_similarity_value = None
-            if iteration % 20 == 0:
+            if iteration % n_check == 0:
                 if self.true_l is not None:
                     with torch.no_grad():
                         # Crop the arrays to exclude the outer border.
-                        crop_size = 120  # Number of pixels to crop from each edge
+                        crop_size = 80  # Number of pixels to crop from each edge
                         recon_l = self.l.detach()
                         true_l = self.true_l.detach()
                         recon_l_cropped = recon_l[:, crop_size:-crop_size, crop_size:-crop_size]
@@ -471,7 +471,7 @@ class PtychoReconstructionTrainer:
                 self.iteration_numbers.append(iteration)
 
             # Print learning rates periodically
-            if iteration % 20 == 0:
+            if iteration % n_check == 0:
                 print([group['lr'] for group in self.optimizer.param_groups])
             '''
             # Apply randomization early in training to escape local minima
@@ -493,12 +493,12 @@ class PtychoReconstructionTrainer:
                 self.save_checkpoint(checkpoint_out_path, iteration)
             '''
             # Update plots
-            if iteration % 20 == 0:
+            if iteration % n_check == 0:
                 theta = torch.acos(torch.clamp(lz_norm, -1.0 + 1e-6, 1.0 - 1e-6))
                 phi = torch.atan2(ly_norm, lx_norm)
                 
                 # Compute fluence from probe
-                fluence_calc = torch.sum(torch.abs(self.probe_amplitude) ** 2)
+                fluence_calc = torch.sum(torch.abs(self.probe_amplitude.detach().cpu()) ** 2)
                 cosine_text = f"{cosine_similarity_value:.6f}" if cosine_similarity_value is not None else "N/A"
                 print(
                     f"Iter {iteration:4d} | Loss = {loss_value:.6e} | CosSim = {cosine_text} | "
@@ -508,10 +508,10 @@ class PtychoReconstructionTrainer:
                 )
                 
                 plot_update(
-                    self.probe_amplitude,
-                    theta,
-                    phi,
-                    loss,
+                    self.probe_amplitude.detach().cpu(),
+                    theta[crop_size:-crop_size, crop_size:-crop_size].detach().cpu(),
+                    phi[crop_size:-crop_size, crop_size:-crop_size].detach().cpu(),
+                    loss_value,
                     self.scan,
                     self.scan_ref,
                     I_sim=I_pred,
