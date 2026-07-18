@@ -452,7 +452,7 @@ class PtychoReconstructionTrainer:
                 )
             self.optimizer.step()
             #self.scheduler.step(loss)
-            n_check  = 10  # Check every iteration
+            n_check  = 1  # Check every iteration
             loss_value = loss.item()
             cosine_similarity_value = None
             if iteration % n_check == 0:
@@ -514,10 +514,8 @@ class PtychoReconstructionTrainer:
                     loss_value,
                     self.scan,
                     self.scan_ref,
-                    I_sim=I_pred,
-                    I_exp=self.I_meas,
-                    diff_probe_idx=diff_probe_idx,
-                    diff_scan_idx=diff_scan_idx,
+                    I_sim_frame=I_pred[diff_probe_idx, diff_scan_idx].detach(),
+                    I_exp_frame=self.I_meas[diff_probe_idx, diff_scan_idx],
                     save_filename=plot_filename,
                 )
         if checkpoint_out_path:

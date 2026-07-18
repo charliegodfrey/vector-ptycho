@@ -486,3 +486,57 @@ def circle_overlap_percent(R, d):
 
     single_area = np.pi * R**2
     return 100.0 * A / single_area
+
+def zone_plate_probe(N, dx, X_obj, Y_obj, R, wavelength, D_zp, drN,
+                     D_stop=0.0, defocus=0.0, aberration=None,
+                     device=device, dtype=torch.complex128):
+    """
+    Simulate the Fresnel Zone Plate Probe:
+    Fresnel IPM of Qin et al., Appl. Opt. 62, 3542-3550 (2023).
+      Eq (1): analytic annular-aperture focal-plane field E1(theta)
+      Eqs (2)-(3): angular-spectrum propagation over z = defocus
+
+      D_zp : float — zone plate diameter (m)
+      drN  : float — outermost zone width (m)
+      defocus : float — propagation distance after the focal plane before it hits the sample (m)
+      aberration : torch.Tensor, optional — optical aberration term (m)
+      dx : float — object pixel size (m)
+      N : int — number of pixels in the object (assumed square)
+      X_obj, Y_obj : torch.Tensor — real-space meshgrid coordinates copied from the object (m)
+      R : torch.Tensor — radial distance from the optical axis (copied from the object) (m)
+    """
+    a = D_zp/2.0
+    b = D_stop/2.0
+    f = D_zp*drN/wavelength
+    k = 2*np.pi/wavelength
+
+    x  = (torch.arange(N, device=device) - N//2)*dx
+    #X, Y = torch.meshgrid(x, x, indexing='ij')
+    X, Y = X_obj, Y_obj
+    #r  = torch.sqrt(X**2 + Y**2)
+    th = R/f
+
+    # --- Eq (1), implemented exactly ------------------------------------
+    j1 = torch.special.bessel_j1                       # scipy.special.j1 fallback if absent
+    bracket = torch.where(
+        R > 0,
+        a**2*j1(k*a*th)/(k*a*th) - b**2*j1(k*b*th)/(k*b*th),
+        torch.full_like(R, 0.5*(a**2 - b**2)))          # theta -> 0 limit
+    prefactor = (-2j/(wavelength*f))*np.exp(1j*k*f)      # global const; E0 = 1
+    quad_phase = torch.exp(1j*k*th**2*f/2).to(dtype)     # <-- the term that was missing
+    E1 = prefactor*quad_phase*bracket.to(dtype)
+
+    if aberration is not None:                           # optional, not in the paper
+        E1 = E1*torch.exp(1j*aberration.to(device))
+
+    # --- Eqs (2)-(3): angular-spectrum propagation ----------------------
+    fx = torch.fft.fftfreq(N, d=dx, device=device)
+    FX, FY = torch.meshgrid(fx, fx, indexing='ij')
+    arg = 1.0 - (wavelength*FX)**2 - (wavelength*FY)**2  # 1 - (lambda*fx)^2 - (lambda*fy)^2
+    Dz  = torch.exp(1j*k*defocus*torch.sqrt(torch.clamp(arg, min=0))).to(dtype)
+    Dz  = torch.where(arg < 0, torch.zeros_like(Dz), Dz)
+
+    A   = torch.fft.fft2(torch.fft.ifftshift(E1))
+    psi = torch.fft.fftshift(torch.fft.ifft2(A*Dz))
+    return psi/torch.sqrt((psi.abs()**2).sum())
+

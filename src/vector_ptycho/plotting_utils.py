@@ -688,23 +688,6 @@ def create_live_plotter(Lx, Ly,
     ax_neelins.imshow(make_neel_color_wheel_rgba(phi_cmap=phi_cmap, gamma=1.0), origin='lower', extent=[-1, 1, -1, 1])
     _decorate_probe_color_wheel_axes(ax_neelins)
 
-    def _extract_diffraction_frame(intensity, probe_idx=0, scan_idx=0):
-        """Extract a single detector frame from 2D/3D/4D intensity arrays."""
-        if intensity is None:
-            return None
-
-        arr = _to_numpy(intensity)
-        if arr.ndim == 4:
-            p = int(np.clip(probe_idx, 0, arr.shape[0] - 1))
-            s = int(np.clip(scan_idx, 0, arr.shape[1] - 1))
-            return arr[p, s], p, s
-        if arr.ndim == 3:
-            s = int(np.clip(scan_idx, 0, arr.shape[0] - 1))
-            return arr[s], None, s
-        if arr.ndim == 2:
-            return arr, None, None
-        return None
-
     def update(
         probe_amplitude,
         theta,
@@ -712,10 +695,8 @@ def create_live_plotter(Lx, Ly,
         loss,
         scan,
         scan_ref=None,
-        I_sim=None,
-        I_exp=None,
-        diff_probe_idx=0,
-        diff_scan_idx=0,
+        I_sim_frame=None,
+        I_exp_frame=None,
         save_filename=None,
     ):
         '''Update the plots with new data. Call this function after each iteration of the ptychography reconstruction.'''
@@ -760,31 +741,19 @@ def create_live_plotter(Lx, Ly,
         ax_positions.legend(loc='upper right')
 
         # --- Diffraction patterns (shared colour scale between sim/exp) ---
-        sim_frame_info = _extract_diffraction_frame(I_sim, diff_probe_idx, diff_scan_idx)
         sim_plot = None
-        if sim_frame_info is not None:
-            sim_frame, p_idx, s_idx = sim_frame_info
+        if I_sim_frame is not None:
+            sim_frame = _to_numpy(I_sim_frame)
             sim_plot = np.log10(np.clip(sim_frame, 0.0, None) + 1e-8)
             im_diff_sim.set_data(sim_plot)
-            if p_idx is None and s_idx is None:
-                ax_diff_sim.set_title('Simulated diffraction (log10)')
-            elif p_idx is None:
-                ax_diff_sim.set_title(f'Simulated diffraction (scan {s_idx}, log10)')
-            else:
-                ax_diff_sim.set_title(f'Simulated diffraction (probe {p_idx}, scan {s_idx}, log10)')
+            ax_diff_sim.set_title('Simulated diffraction (log10)')
 
-        exp_frame_info = _extract_diffraction_frame(I_exp, diff_probe_idx, diff_scan_idx)
         exp_plot = None
-        if exp_frame_info is not None:
-            exp_frame, p_idx, s_idx = exp_frame_info
+        if I_exp_frame is not None:
+            exp_frame = _to_numpy(I_exp_frame)
             exp_plot = np.log10(np.clip(exp_frame, 0.0, None) + 1e-8)
             im_diff_exp.set_data(exp_plot)
-            if p_idx is None and s_idx is None:
-                ax_diff_exp.set_title('Experimental diffraction (log10)')
-            elif p_idx is None:
-                ax_diff_exp.set_title(f'Experimental diffraction (scan {s_idx}, log10)')
-            else:
-                ax_diff_exp.set_title(f'Experimental diffraction (probe {p_idx}, scan {s_idx}, log10)')
+            ax_diff_exp.set_title('Experimental diffraction (log10)')
 
         available_plots = [arr for arr in (sim_plot, exp_plot) if arr is not None]
         if available_plots:
