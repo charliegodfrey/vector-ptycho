@@ -489,7 +489,7 @@ def circle_overlap_percent(R, d):
 
 def zone_plate_probe(N, dx, X_obj, Y_obj, R, wavelength, D_zp, drN,
                      D_stop=0.0, defocus=0.0, aberration=None,
-                     device=device, dtype=torch.complex128):
+                     device=device, dtype=torch.complex64):
     """
     Simulate the Fresnel Zone Plate Probe:
     Fresnel IPM of Qin et al., Appl. Opt. 62, 3542-3550 (2023).

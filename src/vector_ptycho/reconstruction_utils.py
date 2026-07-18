@@ -452,7 +452,7 @@ class PtychoReconstructionTrainer:
                 )
             self.optimizer.step()
             #self.scheduler.step(loss)
-            n_check  = 1  # Check every iteration
+            n_check  = 20 # Check every iteration
             loss_value = loss.item()
             cosine_similarity_value = None
             if iteration % n_check == 0:
@@ -460,8 +460,8 @@ class PtychoReconstructionTrainer:
                     with torch.no_grad():
                         # Crop the arrays to exclude the outer border.
                         crop_size = 80  # Number of pixels to crop from each edge
-                        recon_l = self.l.detach()
-                        true_l = self.true_l.detach()
+                        recon_l = self.l.detach().cpu()
+                        true_l = self.true_l.detach().cpu()
                         recon_l_cropped = recon_l[:, crop_size:-crop_size, crop_size:-crop_size]
                         true_l_cropped = true_l[:, crop_size:-crop_size, crop_size:-crop_size]
                         cosine_similarity_value = neel_field_rmse(recon_l_cropped, true_l_cropped, eps=self.eps).item()
@@ -473,25 +473,7 @@ class PtychoReconstructionTrainer:
             # Print learning rates periodically
             if iteration % n_check == 0:
                 print([group['lr'] for group in self.optimizer.param_groups])
-            '''
-            # Apply randomization early in training to escape local minima
-            if iteration % 8 == 0 and iteration < 30:
-                with torch.no_grad():
-                    if self.probe_randomisation:
-                        self.probe_amplitude.data += (
-                            torch.rand((self.H, self.W), device=self.device) * 
-                            torch.max(torch.abs(self.probe_amplitude)) * 0.25
-                        )
-                    if self.object_randomisation:
-                        for i in range(3):
-                            noise = torch.randn_like(self.l[i])
-                            self.l[i].data += 1.5 * noise
-            '''
-            # Save checkpoint
-            '''
-            if checkpoint_out_path and iteration % save_every == 0:
-                self.save_checkpoint(checkpoint_out_path, iteration)
-            '''
+
             # Update plots
             if iteration % n_check == 0:
                 theta = torch.acos(torch.clamp(lz_norm, -1.0 + 1e-6, 1.0 - 1e-6))
@@ -514,8 +496,8 @@ class PtychoReconstructionTrainer:
                     loss_value,
                     self.scan,
                     self.scan_ref,
-                    I_sim_frame=I_pred[diff_probe_idx, diff_scan_idx].detach(),
-                    I_exp_frame=self.I_meas[diff_probe_idx, diff_scan_idx],
+                    I_sim_frame=I_pred[diff_probe_idx, diff_scan_idx].detach().cpu(),
+                    I_exp_frame=self.I_meas[diff_probe_idx, diff_scan_idx].detach().cpu(),
                     save_filename=plot_filename,
                 )
         if checkpoint_out_path:
